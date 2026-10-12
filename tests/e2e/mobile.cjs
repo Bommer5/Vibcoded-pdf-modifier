@@ -59,6 +59,16 @@ const server = http.createServer((req, res) => {
   check('quick bar fits the screen', qb && qb.x >= 0 && qb.x + qb.width <= vw.w + 1, JSON.stringify(qb))
   await page.screenshot({ path: path.join(outDir, 'm2-pen.png') })
 
+  // Formes sur téléphone : toutes les formes sont proposées dans la barre rapide
+  await page.tap('[data-tool=shape]')
+  const kinds = await page.locator('.quickbar .qb-shape').count()
+  const qb2 = await page.locator('.quickbar').boundingBox()
+  check('shape choices on phone', kinds === 6 && qb2.x >= 0, `n=${kinds}`)
+  await page.tap('.quickbar .qb-shape[aria-label=Triangle]')
+  check('pick a triangle on phone', 'triangle' === await page.evaluate(() => window.__feuillet.settings.value.shape))
+  await page.screenshot({ path: path.join(outDir, 'm2b-shapes.png') })
+  await page.tap('[data-tool=pen]')
+
   // Tiroir des propriétés
   await page.tap('[data-action=toggle-props]')
   const props = await page.locator('#properties').boundingBox()

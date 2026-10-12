@@ -84,6 +84,11 @@ export class DocumentModel {
     )
   }
 
+  /** Page qui contient vraiment le point (et non la plus proche), sinon undefined. */
+  pageUnder(p: Point): Page | undefined {
+    return this.pages.find((pg) => p.x >= pg.left && p.x <= pg.left + pg.width && p.y >= pg.top && p.y <= pg.top + pg.height)
+  }
+
   /** Page affichée au centre de l'écran. */
   currentPage(): Page | undefined {
     const center = new Point(this.canvas.getWidth() / 2, this.canvas.getHeight() / 2)

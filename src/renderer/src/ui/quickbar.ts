@@ -1,5 +1,6 @@
 import type { Tool, ToolManager } from '../tools/manager'
-import { settings, type LineStyle, type ToolSettings } from '../tools/settings'
+import { settings, type LineStyle, type ShapeKind, type ToolSettings } from '../tools/settings'
+import { icon, type IconName } from './icons'
 
 /** Tailles prédéfinies (fin / moyen / épais), comme dans les applications de prise de notes. */
 const PRESETS: Partial<Record<Tool, { key: keyof ToolSettings; sizes: number[]; colorKey?: keyof ToolSettings }>> = {
@@ -57,6 +58,32 @@ export class QuickBar {
       g.className = 'qb-group'
       this.root.append(g)
       return g
+    }
+
+    // Formes : le choix de la forme est ici (sur téléphone, le panneau de droite est replié).
+    if (this.tools.tool === 'shape') {
+      const kinds = group()
+      kinds.classList.add('qb-shapes')
+      for (const [id, label] of [['line', 'Ligne'], ['arrow', 'Flèche'], ['rect', 'Rectangle'], ['ellipse', 'Ellipse'], ['triangle', 'Triangle']] as [ShapeKind, string][]) {
+        const b = document.createElement('button')
+        b.className = `qb-shape ${v.shape === id ? 'active' : ''}`
+        b.title = label
+        b.setAttribute('aria-label', label)
+        b.setAttribute('aria-pressed', String(v.shape === id))
+        b.innerHTML = icon(`shape-${id}` as IconName, 18)
+        b.addEventListener('click', () => settings.set('shape', id))
+        kinds.append(b)
+      }
+      const filled = v.shapeFill && v.shapeFill !== 'transparent'
+      const fill = document.createElement('button')
+      fill.className = `qb-shape ${filled ? 'active' : ''}`
+      fill.title = filled ? 'Remplie (cliquer pour la vider)' : 'Vide (cliquer pour la remplir)'
+      fill.setAttribute('aria-label', 'Remplissage')
+      fill.setAttribute('aria-pressed', String(!!filled))
+      fill.innerHTML = icon('fill', 18)
+      // Remplissage : couleur du contour, éclaircie (transparence 20 %).
+      fill.addEventListener('click', () => settings.set('shapeFill', filled ? 'transparent' : tint(v.shapeStroke)))
+      kinds.append(fill)
     }
 
     const sizes = group()
@@ -123,4 +150,11 @@ export class QuickBar {
       g.append(b)
     }
   }
+}
+
+/** Couleur éclaircie (20 % d'opacité) au format rgba, compris par tous les exports. */
+function tint(hex: string): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex)
+  if (!m) return 'rgba(79,140,255,0.2)'
+  return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},0.2)`
 }

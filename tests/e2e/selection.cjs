@@ -107,7 +107,51 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   await win.waitForTimeout(150)
   check('lock / unlock are undoable', await win.evaluate(() => window.__feuillet.editor.doc.content.find((o) => o.fill === '#0000ff')?.locked === true))
 
-  // 6. Info-bulle soignée avec le raccourci
+  // 6. On n'écrit pas en dehors des pages
+  await win.evaluate(() => { const { canvas, doc } = window.__feuillet.editor; canvas.discardActiveObject(); canvas.remove(...doc.content) })
+  const pg = await win.evaluate(() => { const p = window.__feuillet.editor.doc.pages[0]; return { w: p.width, h: p.height } })
+  await win.keyboard.press('KeyP')
+  ;[x, y] = await P(-60, 300) // à gauche de la page
+  await win.mouse.move(x, y); await win.mouse.down(); await win.mouse.move(x + 40, y + 30, { steps: 5 }); await win.mouse.up()
+  check('pen stroke starting outside the page draws nothing', (await count()) === 0)
+  // Trait qui sort de la page puis y revient : coupé au bord, rien dehors, une seule annulation
+  const [s1, s2] = await P(pg.w - 100, 200), [o1, o2] = await P(pg.w + 80, 250), [r1, r2] = await P(pg.w - 100, 300)
+  await win.mouse.move(s1, s2); await win.mouse.down(); await win.mouse.move(o1, o2, { steps: 10 }); await win.mouse.move(r1, r2, { steps: 10 }); await win.mouse.up()
+  const parts = await win.evaluate(() => {
+    const { doc } = window.__feuillet.editor
+    const p = doc.pages[0]
+    return doc.content.map((o) => { const pts = o.ink?.points ?? []; return pts.every(([x, y]) => x >= p.left - 0.01 && x <= p.left + p.width + 0.01 && y >= p.top && y <= p.top + p.height) })
+  })
+  check('stroke leaving the page is cut at the edge (2 pieces, nothing outside)', parts.length === 2 && parts.every(Boolean), JSON.stringify(parts))
+  await win.keyboard.press('Control+z'); await win.waitForTimeout(150)
+  check('one undo removes the whole gesture', (await count()) === 0, `n=${await count()}`)
+  // Forme tirée au-delà du bord : elle s'arrête au bord
+  await win.evaluate(() => window.__feuillet.settings.set('shape', 'rect'))
+  await win.keyboard.press('KeyR')
+  ;[x, y] = await P(pg.w - 150, 400)
+  const [ex, ey] = await P(pg.w + 120, 480)
+  await win.mouse.move(x, y); await win.mouse.down(); await win.mouse.move(ex, ey, { steps: 6 }); await win.mouse.up()
+  const right = await win.evaluate(() => { const { doc } = window.__feuillet.editor; const o = doc.content.at(-1); const p = doc.pages[0]; return [o.left + o.getScaledWidth() - o.strokeWidth, p.left + p.width] })
+  check('shape stops at the page edge', right[0] <= right[1] + 0.5, JSON.stringify(right))
+  // Texte : un clic hors de la page ne crée rien
+  await win.keyboard.press('KeyT')
+  const before6 = await count()
+  ;[x, y] = await P(pg.w + 60, 100)
+  await win.mouse.click(x, y)
+  check('text tool does nothing outside the page', (await count()) === before6 && !(await win.evaluate(() => window.__feuillet.editor.canvas.getActiveObject()?.isEditing)))
+  await win.keyboard.press('Escape')
+  // Formes : choix visible dans la barre rapide (indispensable sur téléphone)
+  await win.keyboard.press('KeyR')
+  const kinds = await win.locator('.quickbar .qb-shape').evaluateAll((b) => b.map((x) => x.getAttribute('aria-label')))
+  check('shape choices in the quick bar', kinds.join() === 'Ligne,Flèche,Rectangle,Ellipse,Triangle,Remplissage', kinds.join())
+  await win.locator('.quickbar .qb-shape[aria-label=Ellipse]').click()
+  check('pick ellipse from the quick bar', (await win.evaluate(() => window.__feuillet.settings.value.shape)) === 'ellipse')
+  await win.locator('.quickbar .qb-shape[aria-label=Remplissage]').click()
+  check('fill toggle', /^rgba/.test(await win.evaluate(() => window.__feuillet.settings.value.shapeFill)))
+  await win.locator('.quickbar .qb-shape[aria-label=Remplissage]').click()
+  await win.keyboard.press('KeyV')
+
+  // 7. Info-bulle soignée avec le raccourci
   await win.mouse.move(0, 0)
   await win.hover('#toolbar [data-tool=pen]')
   await win.waitForTimeout(600)

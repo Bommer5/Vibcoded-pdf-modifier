@@ -22,7 +22,10 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
 
 - **Stylo** sensible à la pression, traits pleins, en tirets ou en pointillés ; ligne droite avec Maj
 - **Surligneur**, **gomme** (partielle ou trait entier ; le bout gomme du stylet est reconnu)
-- **Formes** : ligne, flèche, rectangle, ellipse, triangle
+- **Formes** : ligne, flèche, rectangle, ellipse, triangle, vide ou remplie — choix direct dans la
+  barre rapide (aussi sur téléphone)
+- **On écrit sur les pages, pas à côté** : hors d'une page, les outils d'écriture affichent un
+  curseur « interdit » ; un trait qui sort de la page est coupé au bord, une forme s'y arrête
 - **Texte** façon Word. Avec l'outil Texte : un **clic** crée un texte, un **glisser** crée une zone
   rectangulaire, et **entourer une zone à main levée** fait épouser au texte la forme dessinée.
   Une **barre de mise en forme** apparaît au-dessus de la page, rangée comme l'onglet Accueil de

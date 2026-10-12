@@ -36,6 +36,34 @@ interface Stroke {
   lastMove: Point
   /** Début du geste (performance.now), pour reconnaître un simple toucher. */
   t0?: number
+  /** Page où le geste a commencé : on n'écrit pas en dehors (rien ne s'y exporte). */
+  page?: Rect4
+  /** Le pointeur est sorti de la page : le trait est coupé au bord, et reprend en y revenant. */
+  outside?: boolean
+  lastOutside?: InkPoint
+}
+
+interface Rect4 {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+const inside = (r: Rect4, x: number, y: number): boolean => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1
+const clampTo = (r: Rect4, x: number, y: number): [number, number] => [Math.min(r.x1, Math.max(r.x0, x)), Math.min(r.y1, Math.max(r.y0, y))]
+
+/** Point du bord de la page entre un point dedans `a` et un point dehors `b` (dichotomie). */
+function edgePoint(r: Rect4, a: InkPoint, b: InkPoint): InkPoint {
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 14; i++) {
+    const t = (lo + hi) / 2
+    if (inside(r, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)) lo = t
+    else hi = t
+  }
+  const [x, y] = clampTo(r, a[0] + (b[0] - a[0]) * lo, a[1] + (b[1] - a[1]) * lo)
+  return [x, y, (a[2] + b[2]) / 2]
 }
 
 /**
@@ -130,10 +158,15 @@ export class ToolManager {
 
     if (this.tool === 'text') {
       if (o.target && 'text' in o.target) return // clic dans un texte existant : édition normale
-      this.stroke = { tool: 'text', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
+      const page = this.pageRect(p)
+      if (!page) return this.offPage()
+      this.stroke = { tool: 'text', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p, page }
       return
     }
-    if (this.tool === 'table') return this.createTable(p)
+    if (this.tool === 'table') {
+      const page = this.pageRect(p)
+      return page ? this.createTable(p, page) : this.offPage()
+    }
     if (this.tool === 'edittext') {
       void editTextAt(this.ed, p).then((box) => {
         if (box) this.set('select')
@@ -162,7 +195,12 @@ export class ToolManager {
     // Appui sur l'objet sélectionné (ou Ctrl + appui) : Fabric le déplace, on ne trace rien.
     if (o.target && tool !== 'eraser') return
 
-    this.stroke = { tool, points: [[p.x, p.y, pressureOf(e)]], start: p, straight: false, lastMove: p, t0: performance.now() }
+    // On écrit sur les pages, pas dans le vide autour (la gomme, elle, marche partout).
+    const page = tool === 'eraser' ? undefined : this.pageRect(p)
+    if (tool !== 'eraser' && !page) return this.offPage()
+
+    this.stroke = { tool, points: [[p.x, p.y, pressureOf(e)]], start: p, straight: false, lastMove: p, t0: performance.now(), page: page ?? undefined }
+    if (tool === 'pen' || tool === 'highlighter') this.ed.history.begin() // un geste = une étape, même coupé au bord
     if (tool === 'eraser') {
       this.ed.history.begin()
       this.erase(p)
@@ -174,6 +212,12 @@ export class ToolManager {
   private move(o: TPointerEventInfo): void {
     const e = o.e as PointerEvent
     if (!this.stroke) {
+      // Hors des pages, les outils d'écriture montrent un curseur « interdit ».
+      if (['pen', 'highlighter', 'shape', 'text', 'table'].includes(this.tool) && !o.target) {
+        const off = !this.ed.doc.pageUnder(o.scenePoint)
+        this.ed.canvas.setCursor(off ? 'not-allowed' : this.ed.canvas.defaultCursor)
+        if (off) return this.clearTop()
+      }
       if (this.tool === 'eraser') this.drawEraserCursor(o.scenePoint)
       else if ((this.tool === 'pen' || this.tool === 'highlighter') && (e as PointerEvent).pointerType !== 'touch') this.drawSizeCursor(o.scenePoint)
       return
@@ -188,7 +232,7 @@ export class ToolManager {
     for (const ev of samples) {
       const p = this.ed.canvas.getScenePoint(ev)
       if (s.tool === 'eraser') this.erase(p)
-      else s.points.push([p.x, p.y, pressureOf(ev)])
+      else this.addPoint(s, [p.x, p.y, pressureOf(ev)])
     }
     const last = this.ed.canvas.getScenePoint(e)
     if (last.distanceFrom(s.lastMove) * this.ed.viewport.zoom > 3) {
@@ -199,12 +243,56 @@ export class ToolManager {
     if (s.tool === 'eraser') this.drawEraserCursor(last)
   }
 
+  /**
+   * Ajoute un point au geste en restant sur la page de départ : les formes et les zones de
+   * texte s'arrêtent au bord ; un trait libre est coupé au bord et reprend s'il y revient.
+   */
+  private addPoint(s: Stroke, pt: InkPoint): void {
+    const r = s.page
+    if (!r || s.tool === 'lasso' || s.tool === 'textselect') return void s.points.push(pt)
+    const free = (s.tool === 'pen' || s.tool === 'highlighter') && !this.shiftHeld && !s.straight
+    if (!free) {
+      const [x, y] = clampTo(r, pt[0], pt[1])
+      s.points.push([x, y, pt[2]])
+      return
+    }
+    const isIn = inside(r, pt[0], pt[1])
+    if (!s.outside && !isIn) {
+      // Sortie : on finit le morceau au bord de la page.
+      const last = s.points.at(-1)
+      if (last) {
+        s.points.push(edgePoint(r, last, pt))
+        if (s.points.length > 1) this.ed.add(this.inkFor(s.tool as 'pen' | 'highlighter', s.points))
+      }
+      s.points = []
+      s.outside = true
+      s.recognized = null
+    } else if (s.outside && isIn) {
+      // Retour sur la page : nouveau morceau depuis le bord.
+      s.points = [edgePoint(r, pt, s.lastOutside ?? pt), pt]
+      s.outside = false
+    } else if (isIn) s.points.push(pt)
+    if (!isIn) s.lastOutside = pt
+  }
+
   private up(): void {
     const s = this.stroke
     if (!s) return
     window.clearTimeout(s.holdTimer)
     this.stroke = null
     this.clearTop()
+    if (s.tool === 'pen' || s.tool === 'highlighter') {
+      try {
+        this.finishStroke(s)
+      } finally {
+        this.ed.history.end()
+      }
+      return
+    }
+    this.finishStroke(s)
+  }
+
+  private finishStroke(s: Stroke): void {
     if (s.tool === 'eraser') {
       this.ed.history.end()
       return
@@ -221,7 +309,10 @@ export class ToolManager {
         return
       }
     }
-    const pts = this.finalPoints(s)
+    if (!s.points.length) return // geste terminé hors de la page
+    let pts = this.finalPoints(s)
+    // Trait droit (Maj ou stylet immobile) : son extrémité reste sur la page.
+    if (s.page && pts.length === 2) pts = pts.map(([x, y, p]) => [...clampTo(s.page!, x, y), p] as InkPoint)
     if (s.recognized && s.tool === 'pen') {
       const shape = this.shapeFromRecognized(s.recognized)
       if (shape) {
@@ -270,6 +361,20 @@ export class ToolManager {
       style: tool === 'pen' ? v.penStyle : 'solid',
       pressure: tool === 'pen' && v.pressure
     })
+  }
+
+  /** Rectangle de la page sous un point (coordonnées document), ou null hors des pages. */
+  private pageRect(p: Point): Rect4 | null {
+    const page = this.ed.doc.pageUnder(p)
+    return page ? { x0: page.left, y0: page.top, x1: page.left + page.width, y1: page.top + page.height } : null
+  }
+
+  private lastOffPage = 0
+  /** Appui hors des pages avec un outil d'écriture : on le dit (sans insister). */
+  private offPage(): void {
+    const now = performance.now()
+    if (now - this.lastOffPage > 4000) this.ed.notify('Écrivez sur une page : en dehors, rien ne serait enregistré ni exporté.', 'info')
+    this.lastOffPage = now
   }
 
   private isTap(s: Stroke): boolean {
@@ -352,6 +457,7 @@ export class ToolManager {
       if (shape) return this.withTop((ctx) => shape.render(ctx))
     }
     const v = settings.value
+    if (!s.points.length) return this.clearTop()
     const pts = this.finalPoints(s)
     if (s.recognized && s.tool === 'pen') {
       const shape = this.shapeFromRecognized(s.recognized)
@@ -601,7 +707,9 @@ export class ToolManager {
         splitByGrapheme: false
       })
     } else {
-      box = new Textbox('', { ...style, left: s.start.x, top: s.start.y - v.fontSize * 0.6, width: 240, splitByGrapheme: false })
+      // Clic simple : la zone ne dépasse pas le bord droit de la page.
+      const room = s.page ? s.page.x1 - s.start.x - 8 : 240
+      box = new Textbox('', { ...style, left: s.start.x, top: s.start.y - v.fontSize * 0.6, width: Math.max(60, Math.min(240, room)), splitByGrapheme: false })
     }
     this.ed.add(box)
     this.set('select')
@@ -611,9 +719,12 @@ export class ToolManager {
     this.ed.canvas.requestRenderAll()
   }
 
-  private createTable(at: Point): void {
+  private createTable(at: Point, page: Rect4): void {
     const table = Table.create(settings.value.tableRows, settings.value.tableCols)
-    table.set({ left: at.x, top: at.y })
+    // Le tableau tient dans la page : on le décale vers l'intérieur si besoin.
+    const w = table.getScaledWidth()
+    const h = table.getScaledHeight()
+    table.set({ left: Math.max(page.x0, Math.min(at.x, page.x1 - w)), top: Math.max(page.y0, Math.min(at.y, page.y1 - h)) })
     table.setCoords()
     this.ed.add(table)
     this.set('select')

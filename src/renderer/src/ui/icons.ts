@@ -1,6 +1,6 @@
 import {
   BringToFront, ChartColumn, ClipboardPaste, Copy, CopyPlus, Eraser, FilePenLine, Group, Hand, Highlighter, Image, Lasso, Layers,
-  Lightbulb, Lock, LockOpen, Menu, MousePointer2, PanelLeft, PenLine, Plus, Redo2, ScanText, Scissors, Search, SendToBack, Settings, Shapes,
+  Circle, Lightbulb, Lock, LockOpen, Menu, MousePointer2, MoveUpRight, PaintBucket, Slash, Square, Triangle, PanelLeft, PenLine, Plus, Redo2, ScanText, Scissors, Search, SendToBack, Settings, Shapes,
   SlidersHorizontal, Table, Trash, Type, Undo2, Ungroup, ZoomIn, ZoomOut, type IconNode
 } from 'lucide'
 
@@ -45,7 +45,13 @@ const ICONS = {
   layers: Layers,
   lock: Lock,
   unlock: LockOpen,
-  tip: Lightbulb
+  tip: Lightbulb,
+  'shape-line': Slash,
+  'shape-arrow': MoveUpRight,
+  'shape-rect': Square,
+  'shape-ellipse': Circle,
+  'shape-triangle': Triangle,
+  fill: PaintBucket
 } satisfies Record<string, IconNode>
 
 export type IconName = keyof typeof ICONS
