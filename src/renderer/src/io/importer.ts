@@ -59,15 +59,18 @@ export const OPEN_FILTERS: FileFilter[] = [
 
 const PX_TO_PT = 0.75 // 96 ppp → 72 ppp
 const LONG_TEXT_LINES = 40
+/** Nom de la pièce jointe d'un « PDF modifiable ». */
+export const EMBEDDED_PROJECT = 'feuillet-project.feuillet'
 
 export class Importer {
   constructor(private ed: Editor) {}
 
   /** Ouvre des fichiers comme nouveau document (le premier remplace le document courant). */
-  async open(files: OpenedFile[]): Promise<void> {
-    if (files.length === 0) return
+  /** Renvoie vrai si le document a bien été ouvert. */
+  async open(files: OpenedFile[], opts: { confirm?: boolean } = {}): Promise<boolean> {
+    if (files.length === 0) return false
     const { doc, history, viewport } = this.ed
-    if (!doc.isEmpty && history.canUndo && !confirm('Le document actuel sera fermé. Continuer ?')) return
+    if (opts.confirm !== false && !doc.isEmpty && history.canUndo && !confirm('Le document actuel sera fermé. Continuer ?')) return false
 
     let ok = false
     await this.guard(async () => {
@@ -77,9 +80,22 @@ export class Importer {
     if (doc.pages.length === 0) await doc.addPage()
     history.reset()
     viewport.fit(doc.box(doc.pages[0]))
-    if (!ok) return
-    document.title = `${files[0].name} — Feuillet`
+    if (!ok) return false
     this.ed.notify(`${files[0].name} ouvert (${doc.pages.length} page${doc.pages.length > 1 ? 's' : ''})`, 'success')
+    return true
+  }
+
+  /** « PDF modifiable » : le projet Feuillet complet est joint au PDF. */
+  private async embeddedProject(data: Uint8Array): Promise<Uint8Array | null> {
+    const probe = `probe:${crypto.randomUUID()}`
+    try {
+      await pdfEngine.open(probe, data)
+      return await pdfEngine.attachment(probe, EMBEDDED_PROJECT)
+    } catch {
+      return null
+    } finally {
+      await pdfEngine.close(probe).catch(() => {})
+    }
   }
 
   private async replaceWith(files: OpenedFile[]): Promise<void> {
@@ -90,6 +106,13 @@ export class Importer {
     pdfEngine.forgetText()
     assets.clear(this.ed.keepAssets?.())
     for (const file of files) {
+      // PDF enregistré par Feuillet : on rouvre le projet complet qu'il contient (tout reste modifiable).
+      const embedded = files.length === 1 && kindOf(file.name) === 'pdf' ? await this.embeddedProject(file.data) : null
+      if (embedded) {
+        const scene = await loadProject(this.ed.canvas, embedded)
+        this.ed.layers?.load(scene.layers as never)
+        continue
+      }
       if (kindOf(file.name) === 'project') {
         if (files.length > 1) throw new Error('Ouvrez un projet .feuillet seul')
         const scene = await loadProject(this.ed.canvas, file.data)
@@ -104,7 +127,8 @@ export class Importer {
   async insert(files: OpenedFile[], at: Point | null = this.ed.pointer()): Promise<void> {
     if (files.length === 0) return
     if (this.ed.doc.isEmpty && files.every((f) => kindOf(f.name) !== 'image' && kindOf(f.name) !== 'svg')) {
-      return this.open(files)
+      await this.open(files)
+      return
     }
     await this.guard(() =>
       this.ed.history.transaction(async () => {

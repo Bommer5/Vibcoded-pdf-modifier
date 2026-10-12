@@ -13,7 +13,7 @@ export interface Editor {
   history: History
   viewport: Viewport
   layers?: Layers
-  notify(message: string, kind?: NoticeKind): void
+  notify(message: string, kind?: NoticeKind, action?: { label: string; run: () => void | Promise<void> }): void
   /** Ajoute un objet de contenu au-dessus des pages. */
   add(obj: FabricObject): void
   /** Ressources à conserver en changeant de document (ex. images dans le presse-papiers). */

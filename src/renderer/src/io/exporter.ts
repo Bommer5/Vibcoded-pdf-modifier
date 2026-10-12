@@ -9,6 +9,7 @@ import { pdfEngine } from '../pdf/engine'
 import { platform, type FileFilter } from '../platform'
 import { canvasToBlob } from '../util/blob'
 import { saveProject } from './project'
+import { EMBEDDED_PROJECT } from './importer'
 
 // Bibliothèques lourdes chargées seulement au moment d'exporter (démarrage plus rapide, moins de mémoire).
 const lib = {
@@ -33,6 +34,7 @@ export interface ExportFormat {
 
 export const EXPORT_FORMATS: ExportFormat[] = [
   { id: 'pdf', label: 'PDF', ext: 'pdf', mime: 'application/pdf' },
+  { id: 'pdf-editable', label: 'PDF modifiable dans Feuillet (lisible partout)', ext: 'pdf', mime: 'application/pdf' },
   { id: 'feuillet', label: 'Projet Feuillet (tout reste modifiable)', ext: 'feuillet', mime: 'application/zip' },
   { id: 'png', label: 'Image PNG', ext: 'png', mime: 'image/png', perPage: true, raster: true },
   { id: 'jpg', label: 'Image JPEG', ext: 'jpg', mime: 'image/jpeg', perPage: true, raster: true },
@@ -82,6 +84,8 @@ export class Exporter {
     switch (format.id) {
       case 'pdf':
         return [await this.pdf(pages)]
+      case 'pdf-editable':
+        return [await this.pdf(pages, { embedProject: true })]
       case 'feuillet':
         return [await saveProject(this.ed.canvas, { layers: this.ed.layers?.list })]
       case 'svg':
@@ -188,7 +192,7 @@ export class Exporter {
    * sélectionnable, vectoriel, polices d'origine) et les ajouts sont superposés
    * en vectoriel (svg2pdf). Repli en image haute définition si besoin.
    */
-  async pdf(pages: Page[]): Promise<Uint8Array> {
+  async pdf(pages: Page[], opts: { embedProject?: boolean } = {}): Promise<Uint8Array> {
     const { PDFDocument } = await lib.pdf()
     const out = await PDFDocument.create()
     out.setProducer('Feuillet')
@@ -228,6 +232,15 @@ export class Exporter {
       if (hasContent || bg.kind === 'paper') {
         await this.overlay(out, target, page, { rotation: 0, x: 0, y: 0, width: page.width, height: page.height }, 'vector')
       }
+    }
+    if (opts.embedProject) {
+      // Le projet complet est joint au PDF : n'importe quel lecteur affiche le résultat,
+      // Feuillet rouvre tout (calques, traits, textes) entièrement modifiable.
+      const project = await saveProject(this.ed.canvas, { layers: this.ed.layers?.list })
+      await out.attach(project, EMBEDDED_PROJECT, {
+        mimeType: 'application/zip',
+        description: 'Projet Feuillet : ouvrez ce PDF dans Feuillet pour tout modifier'
+      })
     }
     return out.save()
   }

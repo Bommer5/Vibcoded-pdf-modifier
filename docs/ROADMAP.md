@@ -37,7 +37,7 @@ Limites honnêtes :
 
 ## Phase 1 — Édition de base
 - [x] 1.1 Sélection : cadre pointillé (prend tout ce qu'il touche), poignées, rotation, multi-sélection (Maj)
-- [ ] 1.1b Sélection au lasso
+- [x] 1.1b Sélection au lasso
 - [x] 1.2 Flèches (Maj = ×10), copier/couper/coller **sous le pointeur**, dupliquer (Ctrl+C/X/V/D), tout sélectionner
 - [x] 1.3 Supprimer, grouper / dégrouper (Ctrl+G / Ctrl+Maj+G), barre d'actions de sélection
 - [x] 1.4 Ordre : premier plan / arrière-plan
@@ -51,6 +51,7 @@ Limites honnêtes :
 - [x] 2.3 Gomme partielle ou trait entier ; bout gomme du stylet reconnu automatiquement
 - [x] 2.4 **Lignes droites : Maj** (aimantation 45°) ou **stylet immobile en fin de trait**
 - [x] 2.4b Traits pleins, tirets, pointillés
+- [x] 2.4c Reconnaissance de formes, barre rapide (tailles, couleurs favorites), [ et ]
 - [ ] 2.5 Bouton latéral du stylet configurable (ex. Main, Gomme, Sélection)
 - [x] 2.6 Rejet de la paume (le doigt déplace la vue dès qu'un stylet est détecté)
 - [ ] 2.7 Courbe de pression réglable, test de la tablette dans les préférences
@@ -69,10 +70,10 @@ Limites honnêtes :
 - [x] 3.8 Barre de menus (Fichier, Édition, Insertion, Outils, Affichage, Aide) avec raccourcis affichés
 
 ## Phase 4 — Calques
-- [ ] 4.1 Panneau Calques : créer, renommer, supprimer, réordonner (glisser-déposer)
-- [ ] 4.2 Afficher/masquer, verrouiller, opacité par calque
+- [x] 4.1 Panneau Calques : créer, renommer, supprimer, réordonner
+- [x] 4.2 Afficher/masquer, verrouiller
 - [ ] 4.3 Calque « Document » (PDF d'origine) verrouillé par défaut
-- [ ] 4.4 Déplacer la sélection vers un autre calque
+- [x] 4.4 Déplacer la sélection vers un autre calque
 
 ## Phase 5 — Import ✅ (voir docs/RESEARCH.md)
 - [x] 5.1 PDF (hors ligne, pages tournées, formulaires XFA), .ai
@@ -87,11 +88,11 @@ Limites honnêtes :
 
 ## Phase 6 — Pages et documents
 - [ ] 6.1 Nouveau document : A4, A3, A5, Lettre, portrait/paysage, taille libre
-- [ ] 6.2 Panneau Miniatures : réordonner, dupliquer, supprimer, pivoter des pages
-- [ ] 6.3 Fonds de page : vierge, lignes, petits carreaux, pointillés
+- [x] 6.2 Panneau Miniatures : réordonner, dupliquer, supprimer, insérer ; aller à la page
+- [x] 6.3 Fonds de page vectoriels : vierge, ligné, petits carreaux, pointillés, isométrique, portées
 - [ ] 6.4 **Outil Cadre** : tracer un cadre sur la zone de travail → l'exporter en PDF/image
 - [x] 6.5 Format projet natif (.feuillet) : tout reste modifiable (calques, objets)
-- [ ] 6.6 Sauvegarde automatique et récupération après plantage
+- [x] 6.6 Sauvegarde automatique et récupération après plantage ; Ctrl+S dans le fichier ouvert ; PDF modifiable
 
 ## Phase 7 — Export
 - [x] 7.1 PDF : PDF d'origine conservé + ajouts vectoriels (pages tournées gérées)
@@ -99,7 +100,7 @@ Limites honnêtes :
 - [x] 7.3 SVG
 - [x] 7.4 Word .docx (mise en page identique, ou texte modifiable via LibreOffice), ODT, ODG, RTF, DOC
 - [ ] 7.4b Polices TrueType intégrées au PDF (Unicode complet)
-- [ ] 7.5 Impression
+- [x] 7.5 Impression
 - [ ] 7.6 Options : plage de pages, compression, aplatir ou non
 
 ## Phase 7bis — Mobile
@@ -109,18 +110,25 @@ Limites honnêtes :
 - [ ] Conversion bureautique sur mobile (service optionnel)
 - [ ] iOS (même code ; nécessite un Mac + compte Apple)
 
-## Phase 3bis — Modifier le texte d'origine des PDF
-- [ ] Clic sur un texte du PDF → zone modifiable, original masqué à l'export
-- [ ] Mode natif PDFium (WASM) quand la police le permet
+## Phase 3bis — Texte des PDF ✅
+- [x] Double-clic sur un paragraphe → texte modifiable ; l'ancien texte est réellement supprimé (PDFium)
+- [x] Recherche Ctrl+F (accents et casse ignorés), sélection / copie du texte
+- [x] Surligner, souligner, barrer aimantés au texte ; surligneur aimanté aux lignes
+- [ ] Réutiliser la police embarquée quand elle contient tous les caractères
+
+## Phase 3ter — Performances ✅ (voir docs/AUDIT.md)
+- [x] Moteur PDF natif PDFium/WASM dans un worker, rendu paresseux, budget mémoire
+- [x] Historique incrémental, chargement des bibliothèques à la demande
+- [x] Noyau Rust/WASM : gomme, simplification, lasso, reconnaissance de formes, TIFF
 
 ## Phase 8 — Confort et finition « produit »
 - [ ] 8.1 Préférences : raccourcis entièrement personnalisables (dont touches de zoom), thème clair/sombre, langue
 - [ ] 8.2 Règles, grille, magnétisme
 - [ ] 8.3 Onglets (plusieurs documents ouverts)
-- [ ] 8.4 Recherche de texte dans le PDF, surlignage du texte sélectionné
+- [x] 8.4 Recherche de texte dans le PDF, surlignage du texte sélectionné
 - [ ] 8.5 Signature manuscrite réutilisable, tampons
 - [ ] 8.6 Remplissage de formulaires PDF
-- [ ] 8.7 Mode présentation / plein écran
+- [x] 8.7 Plein écran (F11)
 - [ ] 8.8 Traductions FR / EN
 
 ## Phase 9 — Commercialisation

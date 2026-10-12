@@ -31,6 +31,9 @@ export type ActionId =
   | 'nudge.up.big'
   | 'nudge.down.big'
   | 'find'
+  | 'saveAs'
+  | 'print'
+  | 'fullscreen'
   | 'goto'
   | 'sidebar'
   | 'pageNext'
@@ -80,6 +83,9 @@ export const DEFAULT_BINDINGS: Record<ActionId, string[]> = {
   'nudge.up.big': ['Shift+ArrowUp'],
   'nudge.down.big': ['Shift+ArrowDown'],
   find: ['Ctrl+KeyF'],
+  saveAs: ['Ctrl+Shift+KeyS'],
+  print: ['Ctrl+KeyP'],
+  fullscreen: ['F11'],
   goto: ['KeyG', 'Ctrl+Shift+KeyN'],
   sidebar: ['F9'],
   pageNext: ['PageDown'],

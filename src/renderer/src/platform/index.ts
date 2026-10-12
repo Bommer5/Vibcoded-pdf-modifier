@@ -28,6 +28,20 @@ export interface Platform {
   officeConvert(name: string, data: Uint8Array, target: string): Promise<Uint8Array>
   pendingFiles(): Promise<OpenedFile[]>
   onFilesOpened(cb: (files: OpenedFile[]) => void): void
+  /** Choisit un emplacement d'enregistrement (PC) ; null = pas de boîte de dialogue sur cette plateforme. */
+  chooseSavePath(defaultName: string, filters: FileFilter[]): Promise<string | null | undefined>
+  /** Écrit directement dans un fichier déjà ouvert ou choisi (Ctrl+S). */
+  writeFile(path: string, data: Uint8Array): Promise<void>
+  recentFiles(): Promise<{ path: string; name: string }[]>
+  openRecent(path: string): Promise<OpenedFile[]>
+  autosaveWrite(data: Uint8Array): Promise<void>
+  autosaveRead(): Promise<Uint8Array | null>
+  autosaveClear(): Promise<void>
+  setDirty(dirty: boolean): void
+  onSaveBeforeClose(cb: () => void): void
+  closeNow(): void
+  toggleFullscreen(): void
+  print(pages: { png: Uint8Array; width: number; height: number }[]): Promise<boolean>
 }
 
 const desktop = (): Platform => {
@@ -40,7 +54,19 @@ const desktop = (): Platform => {
     officeAvailable: () => api.officeAvailable(),
     officeConvert: (name, data, target) => api.officeConvert(name, data, target),
     pendingFiles: () => api.pendingFiles(),
-    onFilesOpened: (cb) => api.onFilesOpened(cb)
+    onFilesOpened: (cb) => api.onFilesOpened(cb),
+    chooseSavePath: (name, filters) => api.chooseSavePath(name, filters),
+    writeFile: (path, data) => api.writeFile(path, data),
+    recentFiles: () => api.recentFiles(),
+    openRecent: (path) => api.openRecent(path),
+    autosaveWrite: (data) => api.autosaveWrite(data),
+    autosaveRead: () => api.autosaveRead(),
+    autosaveClear: () => api.autosaveClear(),
+    setDirty: (d) => api.setDirty(d),
+    onSaveBeforeClose: (cb) => api.onSaveBeforeClose(cb),
+    closeNow: () => api.closeNow(),
+    toggleFullscreen: () => api.toggleFullscreen(),
+    print: (pages) => api.print(pages)
   }
 }
 
@@ -92,8 +118,58 @@ const web = (): Platform => ({
     throw new Error('Conversion bureautique indisponible sur cette plateforme')
   },
   pendingFiles: async () => [],
-  onFilesOpened: () => {}
+  onFilesOpened: () => {},
+  chooseSavePath: async () => undefined,
+  writeFile: async () => {
+    throw new Error('Écriture directe indisponible sur cette plateforme')
+  },
+  recentFiles: async () => [],
+  openRecent: async () => [],
+  // Navigateur / mobile : sauvegarde automatique dans IndexedDB (survit à la fermeture de l'application).
+  autosaveWrite: (data) => idb('put', data).then(() => undefined),
+  autosaveRead: () => idb('get').then((v) => (v as Uint8Array | undefined) ?? null),
+  autosaveClear: () => idb('delete').then(() => undefined),
+  setDirty: (d) => {
+    window.onbeforeunload = d ? (e) => e.preventDefault() : null
+  },
+  onSaveBeforeClose: () => {},
+  closeNow: () => {},
+  toggleFullscreen: () => {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void document.documentElement.requestFullscreen?.()
+  },
+  print: async (pages) => {
+    const frame = document.createElement('iframe')
+    frame.style.cssText = 'position:fixed;width:0;height:0;border:0'
+    document.body.append(frame)
+    const urls = pages.map((p) => URL.createObjectURL(new Blob([p.png as BlobPart], { type: 'image/png' })))
+    const first = pages[0]
+    frame.srcdoc = `<style>@page{size:${first.width}pt ${first.height}pt;margin:0}body{margin:0}img{width:100%;page-break-after:always;display:block}</style>${urls.map((u) => `<img src="${u}">`).join('')}`
+    await new Promise((r) => (frame.onload = r))
+    frame.contentWindow?.print()
+    setTimeout(() => {
+      frame.remove()
+      urls.forEach((u) => URL.revokeObjectURL(u))
+    }, 60_000)
+    return true
+  }
 })
+
+/** Mini-accès IndexedDB (une seule clé : la sauvegarde automatique). */
+function idb(op: 'get' | 'put' | 'delete', value?: Uint8Array): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open('feuillet', 1)
+    open.onupgradeneeded = () => open.result.createObjectStore('kv')
+    open.onerror = () => reject(open.error)
+    open.onsuccess = () => {
+      const tx = open.result.transaction('kv', op === 'get' ? 'readonly' : 'readwrite')
+      const store = tx.objectStore('kv')
+      const req = op === 'get' ? store.get('autosave') : op === 'put' ? store.put(value, 'autosave') : store.delete('autosave')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    }
+  })
+}
 
 function toBase64(bytes: Uint8Array): string {
   let binary = ''

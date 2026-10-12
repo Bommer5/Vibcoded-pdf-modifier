@@ -14,9 +14,9 @@ réimplémente, on ne copie pas.
 
 | Option | Licence | Verdict |
 |---|---|---|
-| **pdf.js** (Mozilla, moteur de Firefox) | Apache 2.0 | ✅ Retenu. Fidèle, maintenu, fonctionne hors ligne. |
-| MuPDF / mupdf.js | AGPL ou licence payante | ❌ Interdit pour un produit fermé sans licence commerciale. |
-| PDFium (Chrome) via `@embedpdf/pdfium` (WASM) | Apache 2.0 / MIT | 🔜 Piste principale pour l'édition du texte d'origine (§ 3). |
+| pdf.js (Mozilla, moteur de Firefox) | Apache 2.0 | Utilisé au début, **remplacé** : JavaScript, plus lent, gèle l'interface |
+| MuPDF / mupdf.js | AGPL ou licence payante | ❌ Interdit pour un produit fermé sans licence commerciale |
+| **PDFium** (Chrome, C++) via `@embedpdf/pdfium` (WASM) | Apache 2.0 / MIT | ✅ **Retenu** : rendu natif dans un worker, texte avec boîtes de caractères, sommaire, pièces jointes, suppression réelle de texte |
 
 Ce qu'on en a tiré :
 - Les ressources de pdf.js (polices standard, CMaps asiatiques, décodeurs JPEG2000 et JBIG2)
@@ -55,12 +55,13 @@ Même Acrobat a du mal. Approches trouvées :
 | Réécrire les opérateurs de texte dans le flux de contenu | pdfFlow Engine (jeune projet) | Garde la police d'origine, mais échoue si la police intégrée ne contient pas les nouveaux caractères. |
 | API d'objets de page de PDFium (`FPDFText_SetText`, `FPDFPageObj_*`) | EmbedPDF (MIT, PDFium en WASM) | La plus complète. Elle remplace un bloc de texte et le régénère. |
 
-**Plan retenu**, en deux temps :
-1. Outil « Modifier le texte » : pdf.js donne la position, la taille et la police de
-   chaque morceau de texte. Un clic sur un mot le transforme en zone de texte
-   modifiable, et l'original est masqué à l'export. Ça marche partout, mobile compris.
-2. Ensuite, mode « édition native » avec PDFium (WASM) quand la police d'origine
-   contient les caractères nécessaires. Sinon, retour automatique au point 1.
+**Réalisé** (approche PDFium) : un double-clic sur un paragraphe donne une zone de texte avec la
+taille, la couleur, la graisse et la police la plus proche installée. Les objets texte d'origine
+sont **retirés de la page** par PDFium (`FPDFPage_RemoveObject` + `FPDFPage_GenerateContent`),
+à l'écran comme dans le PDF exporté. Un test automatique vérifie avec `pdftotext` que l'ancien
+texte n'existe plus dans le fichier exporté.
+Limite : la police d'origine embarquée n'est pas réutilisée (souvent partielle, elle ne
+contient pas les nouveaux caractères).
 
 ## 4. Formats bureautiques (Word, Excel, PowerPoint, OpenDocument…)
 

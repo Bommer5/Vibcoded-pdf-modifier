@@ -17,6 +17,7 @@ import { chartObject, isChart } from './charts/chart-object'
 import { TableEditor } from './objects/table-editor'
 import { ToolManager, type Tool } from './tools/manager'
 import { MenuBar, type Menu } from './ui/menubar'
+import { FileSession } from './core/file-session'
 import { PropertiesPanel } from './ui/properties'
 import { initOverlay } from './core/overlay'
 import { Layers } from './core/layers'
@@ -50,15 +51,28 @@ const canvas = new Canvas('stage', {
 
 // --- Notifications -----------------------------------------------------------
 
-function notify(message: string, kind: NoticeKind = 'info'): void {
+function notify(message: string, kind: NoticeKind = 'info', action?: { label: string; run: () => void | Promise<void> }): void {
   const toasts = $('toasts')
   // Un message de progression est remplacé par le suivant (progression ou résultat).
-  toasts.querySelectorAll('.toast.info').forEach((t) => t.remove())
+  toasts.querySelectorAll('.toast.info:not(.has-action)').forEach((t) => t.remove())
   const el = document.createElement('div')
-  el.className = `toast ${kind}`
+  el.className = `toast ${kind}${action ? ' has-action' : ''}`
   el.textContent = message
+  if (action) {
+    const b = document.createElement('button')
+    b.className = 'primary'
+    b.textContent = action.label
+    b.addEventListener('click', () => {
+      el.remove()
+      void action.run()
+    })
+    const close = document.createElement('button')
+    close.textContent = 'Ignorer'
+    close.addEventListener('click', () => el.remove())
+    el.append(b, close)
+  }
   toasts.append(el)
-  setTimeout(() => el.remove(), kind === 'error' ? 8000 : 3500)
+  setTimeout(() => el.remove(), action ? 30000 : kind === 'error' ? 8000 : 3500)
 }
 
 // --- Contexte d'édition ------------------------------------------------------
@@ -69,7 +83,12 @@ const REAL_SIZE = 96 / 72
 const viewport = new Viewport(canvas, workspace, (z) => (zoomLabel.textContent = `${Math.round((z / REAL_SIZE) * 100)} %`))
 initOverlay(canvas)
 await doc.addPage()
-const history = new History(canvas, () => refreshButtons())
+// Créé plus bas (il a besoin de l'importeur) ; prévenu de chaque modification pour l'état « non enregistré ».
+let fileSession: FileSession | undefined
+const history = new History(canvas, () => {
+  refreshButtons()
+  fileSession?.changed()
+})
 
 const editor: Editor = {
   canvas,
@@ -86,6 +105,8 @@ const importer = new Importer(editor)
 const exporter = new Exporter(editor)
 const editing = new Editing(editor, importer)
 const exportDialog = new ExportDialog(editor, exporter)
+const session = new FileSession(editor, importer, exporter)
+fileSession = session
 const shortcuts = new ShortcutManager()
 
 viewport.fit(doc.bounds())
@@ -145,29 +166,33 @@ refreshButtons()
 
 // --- Actions --------------------------------------------------------------------
 
-const docName = (): string => document.title.replace(/ — Feuillet$/, '').replace(/\.[^.]+$/, '') || 'Document'
+const docName = (): string => session.name.replace(/\.[^.]+$/, '') || 'Document'
 
 const actions: Record<string, () => void | Promise<void>> = {
   new: async () => {
-    if (!doc.isEmpty && history.canUndo && !confirm('Le document actuel sera fermé. Continuer ?')) return
+    if (session.dirty && !doc.isEmpty && !confirm('Le document actuel n’est pas enregistré. L’abandonner ?')) return
     doc.clear()
     layers.reset()
-    await doc.addPage()
+    doc.addPage()
     history.reset()
     viewport.fit(doc.bounds())
-    document.title = 'Feuillet'
+    session.newDocument()
   },
-  open: async () => importer.open(await platform.openFiles(OPEN_FILTERS)),
+  open: async () => session.open(await platform.openFiles(OPEN_FILTERS)),
   insert: async () => importer.insert(await platform.openFiles(OPEN_FILTERS), null),
-  save: async () => {
-    const format = EXPORT_FORMATS.find((f) => f.id === 'feuillet')!
-    try {
-      const saved = await exporter.run({ format, pages: doc.pages, dpi: 150, name: docName() })
-      if (saved) notify('Projet enregistré', 'success')
-    } catch (e) {
-      notify((e as Error).message, 'error')
+  save: async () => void (await session.save()),
+  'save-as': async () => void (await session.saveAs()),
+  print: async () => {
+    notify('Préparation de l’impression…')
+    const pages = []
+    for (const page of doc.pages) {
+      const canvasEl = await exporter.raster(page, 150)
+      const png = new Uint8Array(await (await new Promise<Blob>((r) => canvasEl.toBlob((b) => r(b!), 'image/png'))).arrayBuffer())
+      pages.push({ png, width: page.width, height: page.height })
     }
+    await platform.print(pages)
   },
+  fullscreen: () => platform.toggleFullscreen(),
   export: () => exportDialog.open(docName()),
   undo: () => history.undo(),
   redo: () => history.redo(),
@@ -286,6 +311,7 @@ for (const p of PAPER_STYLES) actions[`add-page:${p.id}`] = () => addPageAfter(d
 
 const run = (name: string) => (): void => {
   if (name.startsWith('tool:')) return setTool(name.slice(5) as Tool)
+  if (name.startsWith('recent:')) return void session.openRecent(name.slice(7))
   void Promise.resolve(actions[name]?.()).then(refreshButtons)
 }
 
@@ -296,8 +322,15 @@ const menus: Menu[] = [
       { label: 'Nouveau document A4', action: 'new', shortcut: 'new' },
       { label: 'Ouvrir…', action: 'open', shortcut: 'open', hint: 'PDF, images, Word, Excel, PowerPoint, Xournal…' },
       '-',
-      { label: 'Enregistrer le projet…', action: 'save', shortcut: 'save' },
-      { label: 'Exporter…', action: 'export', shortcut: 'export', hint: 'PDF, PNG, JPEG, SVG, Word, OpenDocument…' }
+      () =>
+        session.recent.length
+          ? [{ label: 'Récents :', action: 'noop' }, ...session.recent.slice(0, 8).map((r) => ({ label: `   ${r.name}`, action: `recent:${r.path}`, hint: r.path })), '-' as const]
+          : [],
+      { label: 'Enregistrer', action: 'save', shortcut: 'save', hint: 'Dans le fichier ouvert (projet ou PDF)' },
+      { label: 'Enregistrer sous…', action: 'save-as', shortcut: 'saveAs', hint: 'Projet Feuillet ou PDF modifiable' },
+      { label: 'Exporter…', action: 'export', shortcut: 'export', hint: 'PDF, PNG, JPEG, SVG, Word, OpenDocument…' },
+      '-',
+      { label: 'Imprimer…', action: 'print', shortcut: 'print' }
     ]
   },
   {
@@ -357,6 +390,7 @@ const menus: Menu[] = [
       { label: 'Taille réelle (100 %)', action: 'zoom-actual', shortcut: 'zoomActual' },
       '-',
       { label: 'Pages, sommaire et calques', action: 'toggle-sidebar', shortcut: 'sidebar' },
+      { label: 'Plein écran', action: 'fullscreen', shortcut: 'fullscreen' },
       { label: 'Rechercher…', action: 'find', shortcut: 'find' },
       { label: 'Aller à la page…', action: 'goto', shortcut: 'goto' },
       { label: 'Page suivante', action: 'page-next', shortcut: 'pageNext' },
@@ -368,6 +402,7 @@ const menus: Menu[] = [
 
 const needsSelection = new Set(['cut', 'copy', 'duplicate', 'delete', 'group', 'ungroup', 'front', 'back'])
 new MenuBar($('menubar'), menus, (a) => run(a)(), shortcuts, (a) => {
+  if (a === 'noop') return false
   if (a === 'undo') return history.canUndo
   if (a === 'redo') return history.canRedo
   if (a === 'ungroup') return canvas.getActiveObject()?.type === 'group'
@@ -393,6 +428,9 @@ for (const [dir, dx, dy] of [['left', -1, 0], ['right', 1, 0], ['up', 0, -1], ['
   shortcuts.on(`nudge.${dir}.big`, () => editing.nudge(dx * 10, dy * 10))
 }
 shortcuts.on('find', run('find'))
+shortcuts.on('saveAs', run('save-as'))
+shortcuts.on('print', run('print'))
+shortcuts.on('fullscreen', run('fullscreen'))
 shortcuts.on('goto', run('goto'))
 shortcuts.on('sidebar', run('toggle-sidebar'))
 shortcuts.on('pageNext', run('page-next'))
@@ -434,9 +472,10 @@ workspace.addEventListener('drop', async (e) => {
   refreshButtons()
 })
 
-platform.onFilesOpened((files) => void importer.open(files))
+platform.onFilesOpened((files) => void session.open(files))
 const pending = await platform.pendingFiles()
-if (pending.length > 0) await importer.open(pending)
+if (pending.length > 0) await session.open(pending)
+else await session.offerRecovery()
 
 // Accès pour les tests automatisés de bout en bout.
-Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, layers, sidebar, findBar, textSelection, goToPage } })
+Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, fileSession: session, layers, sidebar, findBar, textSelection, goToPage } })

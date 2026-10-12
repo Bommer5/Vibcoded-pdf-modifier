@@ -218,3 +218,6 @@ button:disabled { opacity: 0.4; cursor: default; }
 .qb-value { font-size: 11px; color: var(--muted); min-width: 40px; }
 .qb-style { width: 30px; padding: 2px; }
 .qb-toggle { font-size: 12px; }
+
+.toast.has-action { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.toast.has-action button { border: 1px solid var(--panel-border); }

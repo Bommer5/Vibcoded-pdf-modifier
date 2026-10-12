@@ -8,7 +8,7 @@ export interface MenuItem {
   hint?: string
 }
 
-export type MenuEntry = MenuItem | '-'
+export type MenuEntry = MenuItem | '-' | (() => (MenuItem | '-')[])
 
 export interface Menu {
   label: string
@@ -70,7 +70,8 @@ export class MenuBar {
 
   private fill(menu: Menu, panel: HTMLElement): void {
     panel.replaceChildren()
-    for (const entry of menu.items) {
+    // Entrées dynamiques (ex. fichiers récents) : calculées à l'ouverture du menu.
+    for (const entry of menu.items.flatMap((e) => (typeof e === 'function' ? e() : [e]))) {
       if (entry === '-') {
         panel.append(Object.assign(document.createElement('div'), { className: 'menu-sep' }))
         continue
