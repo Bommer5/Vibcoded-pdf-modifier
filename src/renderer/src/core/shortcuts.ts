@@ -34,6 +34,7 @@ export type ActionId =
   | 'saveAs'
   | 'print'
   | 'fullscreen'
+  | 'preferences'
   | 'goto'
   | 'sidebar'
   | 'pageNext'
@@ -86,6 +87,7 @@ export const DEFAULT_BINDINGS: Record<ActionId, string[]> = {
   saveAs: ['Ctrl+Shift+KeyS'],
   print: ['Ctrl+KeyP'],
   fullscreen: ['F11'],
+  preferences: ['Ctrl+Comma'],
   goto: ['KeyG', 'Ctrl+Shift+KeyN'],
   sidebar: ['F9'],
   pageNext: ['PageDown'],
@@ -138,6 +140,7 @@ export function prettyCombo(combo: string): string {
     .replace('NumpadAdd', 'Pavé +')
     .replace('NumpadSubtract', 'Pavé −')
     .replace('Shift', 'Maj')
+    .replace('Comma', ',')
 }
 
 export class ShortcutManager {
@@ -155,6 +158,16 @@ export class ShortcutManager {
 
   get(action: ActionId): string[] {
     return this.bindings[action]
+  }
+
+  /** Rétablit tous les raccourcis par défaut. */
+  reset(): void {
+    this.bindings = { ...DEFAULT_BINDINGS }
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // sans importance
+    }
   }
 
   set(action: ActionId, combos: string[]): void {

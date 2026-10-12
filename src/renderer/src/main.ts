@@ -18,6 +18,8 @@ import { chartObject, isChart } from './charts/chart-object'
 import { TableEditor } from './objects/table-editor'
 import { ToolManager, type Tool } from './tools/manager'
 import { MenuBar, type Menu } from './ui/menubar'
+import { Welcome } from './ui/welcome'
+import { applyTheme, openPreferences } from './ui/preferences'
 import { FileSession } from './core/file-session'
 import { PropertiesPanel } from './ui/properties'
 import { initOverlay } from './core/overlay'
@@ -85,6 +87,7 @@ const REAL_SIZE = 96 / 72
 const viewport = new Viewport(canvas, workspace, (z) => (zoomLabel.textContent = `${Math.round((z / REAL_SIZE) * 100)} %`))
 initOverlay(canvas)
 installFonts(canvas)
+applyTheme()
 await doc.addPage()
 // Créé plus bas (il a besoin de l'importeur) ; prévenu de chaque modification pour l'état « non enregistré ».
 let fileSession: FileSession | undefined
@@ -199,6 +202,19 @@ const actions: Record<string, () => void | Promise<void>> = {
     notify(ok ? 'Document envoyé à l’imprimante' : 'Impression annulée', ok ? 'success' : 'info')
   },
   fullscreen: () => platform.toggleFullscreen(),
+  preferences: () => openPreferences(shortcuts),
+  // Téléphone : photographier un document et l'insérer (appareil photo arrière).
+  camera: async () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.setAttribute('capture', 'environment')
+    input.onchange = async () => {
+      const f = input.files?.[0]
+      if (f) await importer.insert([{ name: f.name || 'photo.jpg', data: new Uint8Array(await f.arrayBuffer()) }], null)
+    }
+    input.click()
+  },
   export: () => exportDialog.open(docName()),
   undo: () => history.undo(),
   redo: () => history.redo(),
@@ -337,7 +353,9 @@ const menus: Menu[] = [
       { label: 'Enregistrer sous…', action: 'save-as', shortcut: 'saveAs', hint: 'Projet Feuillet ou PDF modifiable' },
       { label: 'Exporter…', action: 'export', shortcut: 'export', hint: 'PDF, PNG, JPEG, SVG, Word, OpenDocument…' },
       '-',
-      { label: 'Imprimer…', action: 'print', shortcut: 'print' }
+      { label: 'Imprimer…', action: 'print', shortcut: 'print' },
+      '-',
+      { label: 'Préférences…', action: 'preferences', shortcut: 'preferences', hint: 'Raccourcis (touches de zoom…), thème, papier, stylet' }
     ]
   },
   {
@@ -363,6 +381,7 @@ const menus: Menu[] = [
     label: 'Insertion',
     items: [
       { label: 'Image, PDF ou document…', action: 'insert', shortcut: 'insert' },
+      ...(matchMedia('(pointer: coarse)').matches ? [{ label: 'Prendre une photo…', action: 'camera' }] : []),
       { label: 'Page (style par défaut)', action: 'add-page' },
       ...PAPER_STYLES.map((p) => ({ label: `Page — ${p.label}`, action: `add-page:${p.id}` })),
       '-',
@@ -438,6 +457,7 @@ shortcuts.on('find', run('find'))
 shortcuts.on('saveAs', run('save-as'))
 shortcuts.on('print', run('print'))
 shortcuts.on('fullscreen', run('fullscreen'))
+shortcuts.on('preferences', run('preferences'))
 shortcuts.on('goto', run('goto'))
 shortcuts.on('sidebar', run('toggle-sidebar'))
 shortcuts.on('pageNext', run('page-next'))
@@ -480,9 +500,28 @@ workspace.addEventListener('drop', async (e) => {
 })
 
 platform.onFilesOpened((files) => void session.open(files))
+// Accueil au démarrage (sauf si un fichier a été ouvert avec Feuillet).
+const welcome = new Welcome(session, {
+  newDoc: (paper) => {
+    if (paper !== 'plain') {
+      settings.set('paper', paper)
+      doc.pages[0].set({ bg: { kind: 'paper', style: paper, color: '#ffffff' } } as never)
+      history.reset()
+      canvas.requestRenderAll()
+    }
+  },
+  open: () => void actions.open(),
+  openRecent: (path) => void session.openRecent(path)
+})
 const pending = await platform.pendingFiles()
 if (pending.length > 0) await session.open(pending)
-else await session.offerRecovery()
+else {
+  void welcome.show()
+  await session.offerRecovery()
+}
+// Choisir un outil ou ouvrir / déposer un fichier ferme l'accueil.
+tools.onChange(() => welcome.hide())
+canvas.on('object:added', () => welcome.visible && !doc.isEmpty && welcome.hide())
 
 // Accès pour les tests automatisés de bout en bout.
 // Fabriques d'objets pour les tests automatisés (mêmes classes que l'interface).
@@ -491,4 +530,4 @@ const make = {
   rect: (o: object) => new Rect(o),
   table: (rows: number, cols: number) => Table.create(rows, cols)
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, fileSession: session, layers, sidebar, findBar, textSelection, goToPage } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage } })

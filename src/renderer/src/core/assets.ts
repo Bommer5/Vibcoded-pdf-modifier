@@ -24,6 +24,17 @@ class AssetStore {
     return asset
   }
 
+  /** Remplace le contenu d'une ressource (ex. PDF déverrouillé). */
+  replace(id: string, bytes: Uint8Array): void {
+    const asset = this.byId.get(id)
+    if (!asset) return
+    URL.revokeObjectURL(asset.url)
+    this.idByUrl.delete(asset.url)
+    asset.bytes = bytes
+    asset.url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: asset.mime }))
+    this.idByUrl.set(asset.url, id)
+  }
+
   async addBlob(blob: Blob): Promise<Asset> {
     return this.add(new Uint8Array(await blob.arrayBuffer()), blob.type || 'application/octet-stream')
   }

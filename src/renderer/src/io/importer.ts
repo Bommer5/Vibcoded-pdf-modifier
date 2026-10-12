@@ -9,6 +9,7 @@ import { decodeImage, DECODED_IMAGE_EXT, NATIVE_IMAGE_EXT } from './images'
 import { pdfEngine } from '../pdf/engine'
 import { loadProject } from './project'
 import { stripAnnotations } from './hybrid'
+import { askPassword } from '../ui/password'
 import { decodeText, importTextAsPages, textBox, TEXT_EXT } from './text'
 import { importXournal } from './xournal'
 
@@ -253,10 +254,31 @@ export class Importer {
     }
   }
 
+  /** Ouvre un PDF, en demandant le mot de passe s'il est protégé (et à nouveau s'il est faux). */
+  private async openWithPassword(id: string, bytes: Uint8Array, name: string): Promise<{ width: number; height: number }[]> {
+    let password: string | undefined
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await pdfEngine.open(id, bytes, password)
+      } catch (e) {
+        if ((e as Error).message !== 'PASSWORD') throw e
+        password = (await askPassword(name, attempt > 0)) ?? undefined
+        if (password === undefined) throw new Error(`${name} est protégé par un mot de passe`)
+      }
+    }
+  }
+
   /** Pages d'un PDF : seule la taille est lue ici (instantané) ; le rendu se fait à l'affichage. */
   private async appendPdf(bytes: Uint8Array, _name: string, after?: Page): Promise<Page[]> {
     const asset = assets.add(bytes, 'application/pdf')
-    const sizes = await pdfEngine.open(asset.id, bytes)
+    const sizes = await this.openWithPassword(asset.id, bytes, _name)
+    // PDF chiffré : on garde la copie déverrouillée (export, modification du texte…).
+    const clear = pdfEngine.decrypted.get(asset.id)
+    if (clear) {
+      assets.replace(asset.id, clear)
+      pdfEngine.decrypted.delete(asset.id)
+      this.ed.notify('PDF déverrouillé : il sera enregistré sans protection.', 'info')
+    }
     const pages: Page[] = []
     sizes.forEach((size, index) => {
       pages.push(this.ed.doc.addPage(size, { bg: { kind: 'pdf', assetId: asset.id, index }, after: pages.at(-1) ?? after }))

@@ -2,6 +2,7 @@
 // Utilisation : xvfb-run -a node tests/e2e/print.cjs <racine> <sortie>
 const { _electron } = require('playwright')
 const fs = require('fs'), path = require('path'), { execFileSync } = require('child_process')
+const { readGray, darkCount } = require('./lib/image.cjs')
 const [root, outDir] = process.argv.slice(2)
 fs.mkdirSync(outDir, { recursive: true })
 const results = []
@@ -13,6 +14,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   const errors = []
   win.on('pageerror', (e) => errors.push(String(e)))
   await win.waitForFunction(() => window.__feuillet)
+  await win.evaluate(() => window.__feuillet.welcome?.hide())
   // Imprimante simulée : chaque impression produit un PDF (même moteur que l'impression réelle).
   await app.evaluate(({ app }) => {
     app.on('web-contents-created', (_e, wc) => {
@@ -42,7 +44,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   check('print: one sheet per page', pages === 2, `pages=${pages}`)
   check('print: each page at its own size (A4 portrait, then landscape)', sizes[0]?.[0] === 595 && sizes[0]?.[1] === 842 && sizes[1]?.[0] === 842 && sizes[1]?.[1] === 595, JSON.stringify(sizes))
   execFileSync('pdftoppm', ['-r', '50', '-f', '1', '-l', '1', '-png', '-singlefile', file, path.join(outDir, 'printed')])
-  const dark = execFileSync('python3', ['-c', `from PIL import Image\nim=Image.open('${path.join(outDir, 'printed.png')}').convert('L')\nprint(sum(1 for p in im.getdata() if p<100))`]).toString().trim()
+  const dark = darkCount(await readGray(app, path.join(outDir, 'printed.png')))
   check('print: page content rendered (text visible)', Number(dark) > 200, `pixels sombres=${dark}`)
   console.log(results.join('\n'))
   console.log('errors:', errors)

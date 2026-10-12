@@ -43,14 +43,55 @@ function f32(m: WrappedPdfiumModule, ptr: number, count: number): Float32Array {
   return new Float32Array(heap(m).buffer, ptr, count).slice()
 }
 
-async function open(id: string, data: Uint8Array): Promise<PdfPageInfo[]> {
+const FPDF_ERR_PASSWORD = 4
+const FPDF_REMOVE_SECURITY = 3
+
+/** Copie du document entier (option : sans chiffrement). */
+function saveCopy(m: WrappedPdfiumModule, handle: number, flags: number): Uint8Array {
+  const chunks: Uint8Array[] = []
+  const writer = m.pdfium.addFunction((_self: number, data: number, size: number) => {
+    chunks.push(heap(m).slice(data, data + size))
+    return 1
+  }, 'iiii')
+  const fw = m.pdfium.wasmExports.malloc(8)
+  try {
+    new Int32Array(heap(m).buffer, fw, 2).set([1, writer])
+    if (!m.FPDF_SaveAsCopy(handle, fw, flags)) throw new Error('Enregistrement PDF impossible')
+  } finally {
+    m.pdfium.removeFunction(writer)
+    m.pdfium.wasmExports.free(fw)
+  }
+  const out = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0))
+  let o = 0
+  for (const c of chunks) {
+    out.set(c, o)
+    o += c.length
+  }
+  return out
+}
+
+/**
+ * Ouvre un PDF. S'il est chiffré (mot de passe d'ouverture, ou simples restrictions),
+ * il est déverrouillé : on travaille ensuite sur une copie en clair, renvoyée à l'appelant.
+ */
+async function open(id: string, data: Uint8Array, password = ''): Promise<{ pages: PdfPageInfo[]; decrypted?: Uint8Array }> {
   const m = await pdfium()
-  const buffer = m.pdfium.wasmExports.malloc(data.length)
+  let buffer = m.pdfium.wasmExports.malloc(data.length)
   heap(m).set(data, buffer)
-  const handle = m.FPDF_LoadMemDocument(buffer, data.length, '')
+  let handle = m.FPDF_LoadMemDocument(buffer, data.length, password)
   if (!handle) {
     m.pdfium.wasmExports.free(buffer)
-    throw new Error(m.FPDF_GetLastError() === 4 ? 'PDF protégé par mot de passe' : 'PDF illisible ou endommagé')
+    throw new Error(m.FPDF_GetLastError() === FPDF_ERR_PASSWORD ? 'PASSWORD' : 'PDF illisible ou endommagé')
+  }
+  let decrypted: Uint8Array | undefined
+  if (m.EPDF_IsEncrypted(handle)) {
+    decrypted = saveCopy(m, handle, FPDF_REMOVE_SECURITY)
+    m.FPDF_CloseDocument(handle)
+    m.pdfium.wasmExports.free(buffer)
+    buffer = m.pdfium.wasmExports.malloc(decrypted.length)
+    heap(m).set(decrypted, buffer)
+    handle = m.FPDF_LoadMemDocument(buffer, decrypted.length, '')
+    data = decrypted
   }
   const count = m.FPDF_GetPageCount(handle)
   const sizePtr = m.pdfium.wasmExports.malloc(8)
@@ -64,7 +105,7 @@ async function open(id: string, data: Uint8Array): Promise<PdfPageInfo[]> {
   }
   m.pdfium.wasmExports.free(sizePtr)
   docs.set(id, { handle, buffer, pages, bytes: data })
-  return pages
+  return { pages, decrypted }
 }
 
 async function close(id: string): Promise<void> {
@@ -355,8 +396,10 @@ self.onmessage = async (e: MessageEvent<{ id: number; req: PdfRequest }>) => {
   const reply = (res: PdfResponse, transfer: Transferable[] = []): void => self.postMessage({ id, res }, { transfer })
   try {
     switch (req.op) {
-      case 'open':
-        return reply({ ok: true, pages: await open(req.doc, req.data) })
+      case 'open': {
+        const { pages, decrypted } = await open(req.doc, req.data, req.password)
+        return reply({ ok: true, pages, decrypted }, decrypted ? [decrypted.buffer] : [])
+      }
       case 'close':
         await close(req.doc)
         return reply({ ok: true })

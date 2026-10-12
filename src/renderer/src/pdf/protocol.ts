@@ -33,7 +33,7 @@ export interface PdfOutlineItem {
 }
 
 export type PdfRequest =
-  | { op: 'open'; doc: string; data: Uint8Array }
+  | { op: 'open'; doc: string; data: Uint8Array; password?: string }
   | { op: 'close'; doc: string }
   | { op: 'render'; doc: string; page: number; width: number; height: number; masks?: PdfMask[] }
   | { op: 'fontinfo'; doc: string; page: number; x: number; y: number }
@@ -43,5 +43,5 @@ export type PdfRequest =
   | { op: 'attachment'; doc: string; name: string }
 
 export type PdfResponse =
-  | { ok: true; pages?: PdfPageInfo[]; bitmap?: ImageBitmap; words?: PdfWord[]; outline?: PdfOutlineItem[]; file?: Uint8Array | null; font?: PdfFontInfo | null }
+  | { ok: true; pages?: PdfPageInfo[]; bitmap?: ImageBitmap; words?: PdfWord[]; outline?: PdfOutlineItem[]; file?: Uint8Array | null; font?: PdfFontInfo | null; decrypted?: Uint8Array }
   | { ok: false; error: string }

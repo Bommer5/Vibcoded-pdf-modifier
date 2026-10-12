@@ -31,6 +31,7 @@ const server = http.createServer((req, res) => {
   page.on('pageerror', (e) => errors.push(String(e)))
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`)
   await page.waitForFunction(() => window.__feuillet)
+  await page.evaluate(() => window.__feuillet.welcome?.hide())
   const vw = await page.evaluate(() => ({ w: innerWidth, h: innerHeight, sw: document.documentElement.scrollWidth }))
   check('no horizontal overflow', vw.sw <= vw.w, JSON.stringify(vw))
   const bar = await page.locator('#toolbar').boundingBox()

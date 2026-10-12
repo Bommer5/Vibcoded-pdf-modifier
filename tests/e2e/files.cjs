@@ -16,6 +16,7 @@ async function launch() {
   })
   const win = await app.firstWindow()
   await win.waitForFunction(() => window.__feuillet)
+  await win.evaluate(() => window.__feuillet.welcome?.hide())
   await win.evaluate(() => (window.confirm = () => true))
   return { app, win }
 }

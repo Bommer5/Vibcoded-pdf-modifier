@@ -2,6 +2,7 @@ import type { Page } from '../core/document'
 import type { Editor } from '../core/editor'
 import { EXPORT_FORMATS, type Exporter } from '../io/exporter'
 import { platform } from '../platform'
+import { enterSubmitsPrimary } from './dialog-keys'
 
 const STORAGE_KEY = 'feuillet.export.v1'
 
@@ -40,6 +41,7 @@ export class ExportDialog {
     }
     this.format.addEventListener('change', () => this.refresh())
     this.pages.addEventListener('change', () => this.refresh())
+    enterSubmitsPrimary(this.dialog)
     this.dialog.addEventListener('close', () => {
       if (this.dialog.returnValue === 'ok') void this.submit()
     })

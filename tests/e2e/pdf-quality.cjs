@@ -3,6 +3,7 @@
 // Utilisation : xvfb-run -a node tests/e2e/pdf-quality.cjs <racine> <sortie>
 const { _electron } = require('playwright')
 const fs = require('fs'), path = require('path'), { execFileSync } = require('child_process')
+const { readGray, diffPercent, pixel } = require('./lib/image.cjs')
 const [root, outDir] = process.argv.slice(2)
 fs.mkdirSync(outDir, { recursive: true })
 const results = []
@@ -14,6 +15,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   const errors = []
   win.on('pageerror', (e) => errors.push(String(e)))
   await win.waitForFunction(() => window.__feuillet)
+  await win.evaluate(() => window.__feuillet.welcome?.hide())
   // Contenu créé via l'API de l'application (mêmes classes que l'interface).
   await win.evaluate(async () => {
     const { editor, tools } = window.__feuillet
@@ -62,18 +64,14 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   check('table text extractable', txt.includes('Crème brûlée') && txt.includes('Quantité'))
   check('emoji text kept (image fallback)', !txt.includes('Bonjour 😀'), '')
   execFileSync('pdftoppm', ['-r', '100', '-png', '-singlefile', file, path.join(outDir, 'pdf')])
-  // Comparaison pixel à pixel (Python/Pillow)
-  const diff = execFileSync('python3', ['-c', `
-from PIL import Image, ImageChops
-a=Image.open('${path.join(outDir, 'screen.png')}').convert('L'); b=Image.open('${path.join(outDir, 'pdf.png')}').convert('L').resize(a.size)
-d=ImageChops.difference(a,b); h=d.histogram(); n=a.size[0]*a.size[1]
-print(round(100*sum(h[40:])/n,3))
-# Le rectangle vert couvre « CACHÉ » : pixel au centre du mot
-px=b.getpixel((int((50+100)*100/72), int((380+15)*100/72)))
-print(px)
-`]).toString().trim().split('\n')
-  check('PDF looks like the screen (pixels differing > 15%)', Number(diff[0]) < 1.5, `${diff[0]} % des pixels`)
-  check('z-order kept: shape above text', Number(diff[1]) > 80 && Number(diff[1]) < 160, `gris=${diff[1]}`)
+  // Comparaison pixel à pixel (lecture des images par Electron)
+  const screen = await readGray(app, path.join(outDir, 'screen.png'))
+  const printed = await readGray(app, path.join(outDir, 'pdf.png'))
+  const diff = diffPercent(screen, printed)
+  check('PDF looks like the screen (pixels differing > 15%)', diff < 1.6, `${diff.toFixed(3)} % des pixels`)
+  // Le rectangle vert couvre « CACHÉ » : au centre du mot, on doit voir le vert, pas le texte noir.
+  const g = pixel(printed, ((50 + 100) * printed.width) / 595.28, ((380 + 15) * printed.height) / 841.89)
+  check('z-order kept: shape above text', g > 80 && g < 160, `gris=${g}`)
   console.log(results.join('\n'))
   console.log('errors:', errors)
   await win.evaluate(() => window.feuillet.setDirty(false)).catch(() => {})

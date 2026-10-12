@@ -29,6 +29,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
+  await win.evaluate(() => window.__feuillet.welcome?.hide())
   await win.evaluate(() => (window.confirm = () => true))
   await win.evaluate(async (b64) => {
     await window.__feuillet.importer.open([{ name: 'doc.pdf', data: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)) }])

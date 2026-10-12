@@ -1,3 +1,4 @@
+import { enterSubmitsPrimary } from '../ui/dialog-keys'
 import { CHART_TYPES, PALETTE, renderChart, type ChartSpec } from './chart'
 
 /**
@@ -20,7 +21,7 @@ export function editChart(initial: ChartSpec): Promise<ChartSpec | null> {
             <label class="check"><input type="checkbox" name="values" /> Valeurs</label>
           </div>
           <p class="muted small">Données : cliquez dans une case pour la modifier, ou collez un tableau copié depuis Excel.</p>
-          <div class="chart-grid-wrap"><table class="chart-grid"></table></div>
+          <div class="chart-grid-wrap" data-enter-local><table class="chart-grid"></table></div>
           <div class="row">
             <button type="button" data-do="add-row">+ Ligne</button>
             <button type="button" data-do="del-row">− Ligne</button>
@@ -100,6 +101,18 @@ export function editChart(initial: ChartSpec): Promise<ChartSpec | null> {
     refresh()
   })
 
+  // Entrée : cellule du dessous (comme dans un tableur).
+  grid.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    const cell = (e.target as HTMLElement).closest('td, th')
+    const row = cell?.parentElement as HTMLTableRowElement | null
+    if (!cell || !row) return
+    const next = row.nextElementSibling?.children[(cell as HTMLTableCellElement).cellIndex]?.querySelector<HTMLInputElement>('input:not([type=color])')
+    next?.focus()
+    next?.select()
+  })
+
   // Collage d'un bloc de cellules (Excel, Calc, Google Sheets : tabulations + retours à la ligne).
   grid.addEventListener('paste', (e) => {
     const text = e.clipboardData?.getData('text/plain') ?? ''
@@ -154,6 +167,7 @@ export function editChart(initial: ChartSpec): Promise<ChartSpec | null> {
 
   renderGrid()
   refresh()
+  enterSubmitsPrimary(dialog)
   dialog.showModal()
 
   return new Promise((resolve) => {

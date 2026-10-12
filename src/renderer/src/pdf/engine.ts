@@ -29,13 +29,19 @@ class PdfEngine {
     })
   }
 
+  /** Copies déverrouillées des PDF chiffrés (à substituer aux octets d'origine). */
+  readonly decrypted = new Map<string, Uint8Array>()
+
   /** Ouvre un PDF (une seule fois par ressource) et renvoie la taille de ses pages. */
-  open(doc: string, data: Uint8Array): Promise<PdfPageInfo[]> {
+  open(doc: string, data: Uint8Array, password?: string): Promise<PdfPageInfo[]> {
     let p = this.opened.get(doc)
     if (!p) {
       // Copie : le tampon est transféré au worker.
       const copy = data.slice()
-      p = this.call({ op: 'open', doc, data: copy }, [copy.buffer]).then((r) => r.pages!)
+      p = this.call({ op: 'open', doc, data: copy, password }, [copy.buffer]).then((r) => {
+        if (r.decrypted) this.decrypted.set(doc, r.decrypted)
+        return r.pages!
+      })
       p.catch(() => this.opened.delete(doc))
       this.opened.set(doc, p)
     }

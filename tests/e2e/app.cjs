@@ -15,6 +15,7 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
   await win.waitForFunction(() => window.__feuillet)
+  await win.evaluate(() => window.__feuillet.welcome?.hide())
   await win.evaluate(() => { window.__file = (name, b64) => ({ name, path: undefined, data: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)) }); window.confirm = () => true })
   const stats = () => win.evaluate(() => { const { doc } = window.__feuillet.editor; return { pages: doc.pages.length, content: doc.content.length } })
 
