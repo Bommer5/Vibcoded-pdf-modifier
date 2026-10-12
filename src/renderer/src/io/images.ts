@@ -1,5 +1,6 @@
 import { assets, type Asset } from '../core/assets'
 import { canvasToBlob } from '../util/blob'
+import { nativeReady, nativeTiff } from '../native/core'
 
 /** Formats décodés nativement par le moteur (Chromium / WebView). */
 export const NATIVE_IMAGE_EXT = ['png', 'jpg', 'jpeg', 'jfif', 'pjpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'cur', 'apng']
@@ -38,6 +39,21 @@ export async function decodeImage(ext: string, data: Uint8Array): Promise<Asset[
 }
 
 async function decodeTiff(data: Uint8Array): Promise<Asset[]> {
+  // Décodeur natif (Rust) : LZW, Deflate, JPEG, Fax G3/G4, 1 à 16 bits, CMJN.
+  if (await nativeReady) {
+    const pages = nativeTiff(data)
+    if (pages?.length) {
+      const out: Asset[] = []
+      for (const p of pages) {
+        const canvas = document.createElement('canvas')
+        canvas.width = p.width
+        canvas.height = p.height
+        canvas.getContext('2d')!.putImageData(new ImageData(p.rgba, p.width, p.height), 0, 0)
+        out.push(await assets.addBlob(await canvasToBlob(canvas, 'image/png')))
+      }
+      return out
+    }
+  }
   const UTIF = await import('utif2')
   const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
   const ifds = UTIF.decode(buffer).filter((ifd) => ifd['t256'] && ifd['t257'])

@@ -27,7 +27,8 @@ export type PdfRequest =
   | { op: 'render'; doc: string; page: number; width: number; height: number }
   | { op: 'text'; doc: string; page: number }
   | { op: 'outline'; doc: string }
+  | { op: 'attachment'; doc: string; name: string }
 
 export type PdfResponse =
-  | { ok: true; pages?: PdfPageInfo[]; bitmap?: ImageBitmap; words?: PdfWord[]; outline?: PdfOutlineItem[] }
+  | { ok: true; pages?: PdfPageInfo[]; bitmap?: ImageBitmap; words?: PdfWord[]; outline?: PdfOutlineItem[]; file?: Uint8Array | null }
   | { ok: false; error: string }

@@ -34,6 +34,7 @@ FabricObject.customProperties = [
   'ink',
   'shape',
   'chart',
+  'markup',
   'contour',
   'contourStroke',
   'contourFill',

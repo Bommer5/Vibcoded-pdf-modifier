@@ -191,6 +191,36 @@ async function outline(id: string): Promise<PdfOutlineItem[]> {
   }
 }
 
+/** Pièce jointe du PDF par nom (ex. le projet Feuillet embarqué dans un « PDF modifiable »). */
+async function attachment(id: string, name: string): Promise<Uint8Array | null> {
+  const m = await pdfium()
+  const doc = getDoc(id)
+  const count = m.FPDFDoc_GetAttachmentCount(doc.handle)
+  const nameBuf = m.pdfium.wasmExports.malloc(1024)
+  const lenPtr = m.pdfium.wasmExports.malloc(4)
+  try {
+    for (let i = 0; i < count; i++) {
+      const att = m.FPDFDoc_GetAttachment(doc.handle, i)
+      if (!att) continue
+      m.FPDFAttachment_GetName(att, nameBuf, 1024)
+      if (m.pdfium.UTF16ToString(nameBuf) !== name) continue
+      if (!m.FPDFAttachment_GetFile(att, 0, 0, lenPtr)) return null
+      const len = new Uint32Array(heap(m).buffer, lenPtr, 1)[0]
+      const buf = m.pdfium.wasmExports.malloc(len)
+      try {
+        m.FPDFAttachment_GetFile(att, buf, len, lenPtr)
+        return heap(m).slice(buf, buf + len)
+      } finally {
+        m.pdfium.wasmExports.free(buf)
+      }
+    }
+    return null
+  } finally {
+    m.pdfium.wasmExports.free(nameBuf)
+    m.pdfium.wasmExports.free(lenPtr)
+  }
+}
+
 self.onmessage = async (e: MessageEvent<{ id: number; req: PdfRequest }>) => {
   const { id, req } = e.data
   const reply = (res: PdfResponse, transfer: Transferable[] = []): void => self.postMessage({ id, res }, { transfer })
@@ -209,6 +239,10 @@ self.onmessage = async (e: MessageEvent<{ id: number; req: PdfRequest }>) => {
         return reply({ ok: true, words: await text(req.doc, req.page) })
       case 'outline':
         return reply({ ok: true, outline: await outline(req.doc) })
+      case 'attachment': {
+        const file = await attachment(req.doc, req.name)
+        return reply({ ok: true, file }, file ? [file.buffer] : [])
+      }
     }
   } catch (err) {
     reply({ ok: false, error: (err as Error).message || String(err) })

@@ -1,0 +1,20 @@
+[package]
+name = "feuillet-core"
+version = "0.1.0"
+edition = "2021"
+description = "Noyau natif de Feuillet (géométrie de l'encre, décodage d'images) compilé en WebAssembly"
+license = "UNLICENSED"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw", "jpeg", "fax"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

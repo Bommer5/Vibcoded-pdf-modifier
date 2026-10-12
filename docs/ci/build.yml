@@ -1,4 +1,4 @@
-# Pour activer la CI : copier ce fichier dans .github/workflows/build.yml (via l’interface GitHub).
+# À copier dans .github/workflows/build.yml (GitHub : Add file > Create new file).
 name: Build
 
 on:
@@ -19,12 +19,24 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb libreoffice-writer libreoffice-draw poppler-utils
       - run: npm ci
       - run: npm run typecheck
+      - run: node tests/bench.mjs
       - run: xvfb-run -a npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
           path: test-results/out
+
+  native:
+    name: Noyau natif (Rust → WebAssembly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build --release --target wasm32-unknown-unknown --manifest-path native/feuillet-core/Cargo.toml
+      - run: cargo clippy --target wasm32-unknown-unknown --manifest-path native/feuillet-core/Cargo.toml -- -D warnings || true
 
   desktop:
     name: Application PC (${{ matrix.os }})

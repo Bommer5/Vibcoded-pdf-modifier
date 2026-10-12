@@ -76,6 +76,10 @@ class PdfEngine {
     return (await this.call({ op: 'outline', doc })).outline!
   }
 
+  async attachment(doc: string, name: string): Promise<Uint8Array | null> {
+    return (await this.call({ op: 'attachment', doc, name })).file ?? null
+  }
+
   forgetText(): void {
     this.textCache.clear()
   }

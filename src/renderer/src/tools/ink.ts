@@ -1,6 +1,7 @@
 import { Path, Point, util, type FabricObject } from 'fabric'
 import { getStroke } from 'perfect-freehand'
 import type { Obj } from '../core/props'
+import { hasNative, nativeErase } from '../native/core'
 import { dashArray, type LineStyle } from './settings'
 
 /** Point d'encre : x, y (coordonnées document), pression 0..1. */
@@ -101,10 +102,22 @@ export function scenePoints(obj: InkObject): InkPoint[] {
  * Renvoie les nouveaux traits (vide si tout est effacé) ou null si rien n'est touché.
  */
 export function eraseInk(obj: InkObject, at: Point, radius: number): InkObject[] | null {
-  // Densifie le trait : une ligne droite n'a que 2 points, mais doit pouvoir être coupée au milieu.
-  const pts = densify(scenePoints(obj), Math.max(0.5, radius / 2))
+  // Rejet rapide par la boîte englobante : la plupart des traits sont loin de la gomme.
+  const box = obj.getBoundingRect()
+  if (at.x < box.left - radius || at.x > box.left + box.width + radius || at.y < box.top - radius || at.y > box.top + box.height + radius) return null
   const scale = (Math.abs(obj.scaleX) + Math.abs(obj.scaleY)) / 2
   const reach = radius + (obj.ink!.size * scale) / 2
+  if (hasNative()) {
+    const runs = nativeErase(new Float32Array(scenePoints(obj).flat()), 3, at.x, at.y, reach, Math.max(0.5, radius / 2))
+    if (!runs) return null
+    return runs.map((r) => {
+      const piece = buildInk({ ...obj.ink!, points: r as InkPoint[], size: obj.ink!.size * scale })
+      piece.set({ opacity: obj.opacity, globalCompositeOperation: obj.globalCompositeOperation })
+      return piece
+    })
+  }
+  // Repli JavaScript. Densifie le trait : une ligne droite n'a que 2 points, mais doit pouvoir être coupée au milieu.
+  const pts = densify(scenePoints(obj), Math.max(0.5, radius / 2))
   const hit = pts.map(([x, y]) => Math.hypot(x - at.x, y - at.y) <= reach)
   if (!hit.some(Boolean)) return null
   const runs: InkPoint[][] = []
