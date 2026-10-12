@@ -120,6 +120,7 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
 
   console.log(results.join('\n'))
   console.log('errors:', errors)
+  await win.evaluate(() => window.feuillet.setDirty(false)).catch(() => {})
   await app.close()
   if (results.some((r) => r.startsWith('FAIL')) || errors.length) process.exit(1)
 })().catch((e) => { console.log(results.join('\n')); console.error(e); process.exit(1) })

@@ -51,5 +51,6 @@ fs.mkdirSync(outDir, { recursive: true })
   const result = { jsHeapMB, pageCacheMB, openMs, scrollMs, undoMs, memStartMB: Math.round(m0 / 1024), memAfterOpenMB: Math.round(m1 / 1024), memEndMB: Math.round(m2 / 1024) }
   console.log(JSON.stringify(result))
   fs.writeFileSync(path.join(outDir, 'perf.json'), JSON.stringify(result, null, 2))
+  await win.evaluate(() => window.feuillet.setDirty(false)).catch(() => {})
   await app.close()
 })().catch((e) => { console.error(e); process.exit(1) })

@@ -51,6 +51,7 @@ async function launch() {
   check('saved PDF readable everywhere (original text kept)', txt.includes('Texte original page 1') && txt.includes('page 3'))
   const recent = await win.evaluate(() => window.__feuillet.fileSession.recent.map((r) => r.name))
   check('recent files', recent.includes('cours.pdf'), JSON.stringify(recent))
+  await win.evaluate(() => window.feuillet.setDirty(false)).catch(() => {})
   await app.close()
 
   // Réouverture : le projet joint est retrouvé → le trait est un objet modifiable (pas aplati).
@@ -79,6 +80,7 @@ async function launch() {
   await restore.click()
   await win.waitForFunction(() => window.__feuillet.editor.doc.content.length === 2, null, { timeout: 10000 })
   check('crash recovery restores unsaved work', true)
+  await win.evaluate(() => window.feuillet.setDirty(false)).catch(() => {})
   await app.close()
 
   console.log(results.join('\n'))

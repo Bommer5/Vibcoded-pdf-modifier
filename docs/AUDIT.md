@@ -22,6 +22,9 @@ qui a été corrigé (mesures à l'appui) et ce qui reste faible. Mesures :
 | Le presse-papiers perdait ses images en ouvrant un autre document | Coller ensuite donnait une image vide | Les ressources du presse-papiers sont conservées | — |
 | `confirm()` à l'ouverture même pour un document déjà enregistré | Question inutile | L'état « non enregistré » est suivi précisément | Titre « • » quand il y a des modifications |
 
+**Mesure finale** (PDF de 100 pages, après défilement de tout le document) : mémoire JavaScript
+**10 Mo**, cache des pages rendues **4 Mo**, ouverture **0,15 s**, annulation **13 ms**.
+
 ## 2. Défauts des autres outils, et ce que fait Feuillet
 
 | Critique relevée | Outil | Réponse de Feuillet |
@@ -46,7 +49,7 @@ qui a été corrigé (mesures à l'appui) et ce qui reste faible. Mesures :
   2 fois le PDF de départ. C'est le prix de la réouverture sans perte.
 - **Mémoire de base d'Electron** : environ 150 Mo par processus (incompressible avec
   Electron). Tauri serait plus léger, mais moins homogène entre Windows, Linux et Android.
-- **Impression** : testée seulement à la main ; elle passe par des images à 150 ppp.
+- **Impression** : non couverte par les tests automatiques (la boîte d'impression du système ne se pilote pas) ; elle passe par des images à 150 ppp.
 - **Mobile** : la barre du haut défile ; il manque une interface pensée pour téléphone.
 - **Historique** : les changements de calques (masquer, renommer) ne sont pas annulables.
 - **Mots de passe** : un PDF protégé ne s'ouvre pas encore (message clair, pas de demande du mot de passe).
@@ -54,6 +57,6 @@ qui a été corrigé (mesures à l'appui) et ce qui reste faible. Mesures :
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  Formats, outils, fonctions essentielles, fichiers.
+  **63 vérifications** : formats, outils, fonctions essentielles, fichiers.
 - `node tests/bench.mjs` : comparaison chiffrée entre le Rust et le JavaScript.
 - `xvfb-run -a node tests/e2e/perf.cjs . out` : ouverture, défilement, annulation, mémoire.
