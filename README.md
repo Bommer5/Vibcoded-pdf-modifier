@@ -18,6 +18,11 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
   descend ou remonte, comme dans Word. L'export PDF réintègre la police d'origine.
 - **Ctrl+S enregistre dans le PDF ouvert**. Il reste lisible partout, et Feuillet le rouvre
   entièrement modifiable.
+- **OCR : le texte en image devient du texte** (page scannée, photo, texte enregistré comme
+  image) : bouton « Reconnaître le texte » des outils PDF. Tout se passe sur l'appareil, sans
+  internet (Tesseract, modèle français). On peut ensuite chercher, surligner et *modifier* ce
+  texte ; la police du scan est devinée par comparaison des formes (Arial, Times, Calibri…,
+  normal / gras / italique) et la taille, le retrait et la justification sont repris
 - **Recherche** (Ctrl+F), **sélection / copie du texte**, **surligneur aimanté aux lignes**,
   souligner, barrer.
 - **Pages** (miniatures, réordonner, dupliquer, aller à la page), **sommaire**, **calques**.

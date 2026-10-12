@@ -57,6 +57,8 @@ export interface PdfChar {
   color: string
   /** Index du caractère dans la page (pour retrouver sa police). */
   i: number
+  /** Texte reconnu par OCR : couleur du fond autour (pour recouvrir l'original). */
+  bg?: string
 }
 
 export interface PdfCharFont {

@@ -4,6 +4,7 @@ import type { Page } from '../core/page'
 import { pdfEngine } from './engine'
 import { originalY, shiftAt } from './flow'
 import { embeddedFace, type EmbeddedFace } from './pdf-fonts'
+import { matchFont } from './ocr'
 import type { PdfChar, PdfCharFont } from './protocol'
 import { nearestWord, pageWords } from './text'
 
@@ -171,14 +172,24 @@ interface Found {
 }
 
 /** Paragraphe du PDF sous un point (coordonnées document), ou null. */
+/** Caractères du PDF et texte reconnu par OCR de la page, police OCR en dernier. */
+async function pageChars(page: Page): Promise<{ chars: PdfChar[]; fonts: PdfCharFont[] }> {
+  const pdf = page.bg.kind === 'pdf' ? await pdfEngine.chars(page.bg.assetId, page.bg.index) : { chars: [], fonts: [] }
+  if (!page.ocr?.chars.length) return pdf
+  // Texte reconnu par OCR : police inconnue, on écrit avec une police courante.
+  const ocrFont: PdfCharFont = { name: 'OCR', family: '', bold: false, italic: false, embedded: false, sample: -1 }
+  const k = pdf.fonts.length
+  return { chars: [...pdf.chars, ...page.ocr.chars.map((c) => ({ ...c, f: k }))], fonts: [...pdf.fonts, ocrFont] }
+}
+
 async function blockAt(ed: Editor, p: Point): Promise<Found | null> {
   const page = ed.doc.pageAt(p)
-  if (!page || page.bg.kind !== 'pdf') return null
-  const { chars, fonts } = await pdfEngine.chars(page.bg.assetId, page.bg.index)
-  // Les zones déjà modifiées n'ont plus de texte d'origine.
-  const masks = page.masks ?? []
-  const visible = masks.length
-    ? chars.filter((c) => !masks.some(([x0, y0, x1, y1]) => (c.x0 + c.x1) / 2 >= x0 && (c.x0 + c.x1) / 2 <= x1 && (c.y0 + c.y1) / 2 >= y0 && (c.y0 + c.y1) / 2 <= y1))
+  if (!page || (page.bg.kind !== 'pdf' && !page.ocr)) return null
+  const { chars, fonts } = await pageChars(page)
+  // Les zones déjà modifiées n'ont plus de texte d'origine (retiré du PDF ou recouvert).
+  const zones = [...(page.masks ?? []), ...(page.covers ?? []).map((c) => c.slice(0, 4) as number[])]
+  const visible = zones.length
+    ? chars.filter((c) => !zones.some(([x0, y0, x1, y1]) => (c.x0 + c.x1) / 2 >= x0 && (c.x0 + c.x1) / 2 <= x1 && (c.y0 + c.y1) / 2 >= y0 && (c.y0 + c.y1) / 2 <= y1))
     : chars
   // Le contenu d'origine a pu être décalé (paragraphe modifié plus haut) : on raisonne
   // en coordonnées d'origine.
@@ -211,7 +222,7 @@ export async function paragraphAt(ed: Editor, p: Point): Promise<Box4 | null> {
 /** Mot du PDF sous un point, ou null. */
 export async function wordAt(ed: Editor, p: Point): Promise<Box4 | null> {
   const page = ed.doc.pageAt(p)
-  if (!page || page.bg.kind !== 'pdf') return null
+  if (!page || (page.bg.kind !== 'pdf' && !page.ocr)) return null
   const hit = nearestWord(await pageWords(page), p.x, p.y)
   if (!hit || p.x < hit.x0 - 2 || p.x > hit.x1 + 2 || p.y < hit.y0 - 2 || p.y > hit.y1 + 2) return null
   return hit
@@ -296,9 +307,21 @@ const baselineOffset = (size: number): number => size * 1.13 * (1 - 0.222)
 
 export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> {
   const found = await blockAt(ed, p)
-  if (!found || found.page.bg.kind !== 'pdf') return null
+  if (!found) return null
   const { page, lines, fonts, chars } = found
   const bg = page.bg as { assetId: string; index: number }
+  // Paragraphe venu de l'OCR (texte en image) : il sera recouvert, pas retiré du PDF.
+  const fromOcr = lines.every((l) => l.chars.every((c) => isSpace(c) || c.bg !== undefined))
+  if (fromOcr) {
+    // Police du scan devinée par comparaison des formes ; elle corrige aussi la taille.
+    const guess = await matchFont(page, lines.flatMap((l) => [...l.chars, { ...l.chars[0], c: ' ' }]))
+    const k = lines[0].font
+    fonts[k] = { ...fonts[k], name: guess.family, family: guess.family, bold: guess.bold, italic: guess.italic }
+    for (const l of lines) {
+      l.size = Math.round(l.size * guess.scale * 10) / 10
+      for (const c of l.chars) c.size = Math.round(c.size * guess.scale * 10) / 10
+    }
+  }
 
   // Polices d'origine (reconstruites depuis le PDF) de tous les caractères du paragraphe.
   const used = new Map<number, Set<number>>()
@@ -324,7 +347,7 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
   }
   const keys = [...new Set(lines.flatMap((l) => l.chars.map((c) => c.f)).filter((f) => f >= 0))]
   const faces = new Map<number, EmbeddedFace | null>()
-  await Promise.all(keys.map(async (k) => faces.set(k, await embeddedFace(bg.assetId, bg.index, fonts[k], used.get(k) ?? [], advances.get(k)))))
+  await Promise.all(keys.map(async (k) => faces.set(k, fonts[k].sample < 0 || page.bg.kind !== 'pdf' ? null : await embeddedFace(bg.assetId, bg.index, fonts[k], used.get(k) ?? [], advances.get(k)))))
   const familyOf = (k: number): string => {
     const f = fonts[k]
     const fallback = closestFont(f?.name ?? '', f?.family ?? '')
@@ -428,7 +451,13 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
   // Le texte d'origine est retiré du PDF : la zone exacte des caractères du paragraphe.
   const mask: [number, number, number, number] = [r.x0 - 0.5, r.y0 - 0.5, r.x1 + 0.5, r.y1 + 0.5]
   await ed.history.transaction(() => {
-    page.set({ masks: [...(page.masks ?? []), mask] } as never)
+    if (fromOcr) {
+      // Texte en image : recouvert de la couleur du fond autour de lui.
+      const back = mode(lines.flatMap((l) => l.chars.map((c) => c.bg ?? '#ffffff')))
+      const pad = size * 0.15
+      page.set({ covers: [...(page.covers ?? []), [r.x0 - pad, r.y0 - pad, r.x1 + pad, r.y1 + pad, back]] } as never)
+      page.dirty = true
+    } else page.set({ masks: [...(page.masks ?? []), mask] } as never)
     ed.add(box)
   })
   ed.canvas.setActiveObject(box)

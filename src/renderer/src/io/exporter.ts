@@ -190,7 +190,9 @@ export class Exporter {
     canvas.height = Math.round(page.height * 2)
     await pageRenderer.paint(canvas.getContext('2d')!, page, 2)
     const url = canvas.toDataURL('image/jpeg', 0.9)
-    return `<image x="0" y="0" width="${page.width}" height="${page.height}" preserveAspectRatio="none" href="${url}"/>`
+    // Texte en image remplacé (OCR) : recouvert de la couleur du fond.
+    const covers = (page.covers ?? []).map(([x0, y0, x1, y1, c]) => `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="${c}"/>`).join('')
+    return `<image x="0" y="0" width="${page.width}" height="${page.height}" preserveAspectRatio="none" href="${url}"/>${covers}`
   }
 
   // --- PDF --------------------------------------------------------------------
@@ -236,9 +238,10 @@ export class Exporter {
         const [copied] = await out.copyPages(src, [bg.index])
         out.addPage(copied)
         outerIndex.set(page.pageId, out.getPageCount() - 1)
-        if (hasContent) {
+        if (hasContent || page.covers?.length) {
           // Ajouts dans un flux séparé et marqué : retirable à la réouverture (PDF modifiable).
           copied.pushOperators(pdfLib.beginMarkedContent(ANNOT_TAG))
+          drawCovers(copied, page, displayMatrix(placementOf(copied)), pdfLib)
           await this.overlay(out, copied, page, placementOf(copied), 'none', fonts)
           copied.pushOperators(pdfLib.endMarkedContent())
         }
@@ -249,6 +252,7 @@ export class Exporter {
         // Image d'origine intégrée telle quelle (pas de recompression).
         const image = await this.embedImage(out, bg.assetId)
         if (image) target.drawImage(image, { x: 0, y: 0, width: page.width, height: page.height })
+        drawCovers(target, page, displayMatrix({ rotation: 0, x: 0, y: 0, width: page.width, height: page.height }), pdfLib)
       }
       if (hasContent || bg.kind === 'paper') {
         await this.overlay(out, target, page, { rotation: 0, x: 0, y: 0, width: page.width, height: page.height }, 'vector', fonts)
@@ -477,6 +481,19 @@ function pdfFonts(svg: string): string {
         : 'helvetica'
     return `font-family="${std}"`
   })
+}
+
+/** Texte en image remplacé (OCR) : zones recouvertes de la couleur du fond. */
+function drawCovers(target: PDFPage, page: Page, display: number[], pdfLib: typeof import('pdf-lib')): void {
+  const covers = page.covers ?? []
+  if (!covers.length) return
+  const ops: import('pdf-lib').PDFOperator[] = [pdfLib.pushGraphicsState(), pdfLib.concatTransformationMatrix(display[0], display[1], display[2], display[3], display[4], display[5])]
+  for (const [x0, y0, x1, y1, color] of covers) {
+    const n = parseInt(color.slice(1), 16)
+    ops.push(pdfLib.setFillingRgbColor(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255), pdfLib.rectangle(x0, y0, x1 - x0, y1 - y0), pdfLib.fill())
+  }
+  ops.push(pdfLib.popGraphicsState())
+  target.pushOperators(...ops)
 }
 
 /** Repère de la page affichée (points, y vers le bas) → repère de la page PDF (rotation comprise). */

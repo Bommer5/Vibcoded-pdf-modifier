@@ -2,6 +2,7 @@ import { classRegistry, FabricObject, Rect, Shadow, type TOptions, type RectProp
 import './props'
 import type { PaperStyle } from './paper'
 import type { PdfShift } from '../pdf/protocol'
+import type { OcrData } from '../pdf/ocr'
 import { pageRenderer } from './page-renderer'
 
 /** Fond d'une page : une description légère, rendue à la demande. */
@@ -22,6 +23,10 @@ export class Page extends Rect {
   declare masks: [number, number, number, number][]
   /** Décalages du contenu d'origine sous les paragraphes modifiés (voir PdfShift). */
   declare shifts: PdfShift[]
+  /** Texte reconnu par OCR (page scannée, texte en image). */
+  declare ocr?: OcrData
+  /** Zones recouvertes de la couleur du fond (texte en image remplacé) : [x0, y0, x1, y1, couleur]. */
+  declare covers?: [number, number, number, number, string][]
   declare pageId: string
   declare role: 'page'
 
@@ -49,9 +54,13 @@ export class Page extends Rect {
     ctx.shadowColor = 'transparent'
     ctx.translate(-this.width / 2, -this.height / 2)
     pageRenderer.draw(ctx, this)
+    for (const [x0, y0, x1, y1, color] of this.covers ?? []) {
+      ctx.fillStyle = color
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+    }
     ctx.restore()
   }
 }
 
 classRegistry.setClass(Page)
-FabricObject.customProperties.push('bg', 'shifts')
+FabricObject.customProperties.push('bg', 'shifts', 'ocr', 'covers')

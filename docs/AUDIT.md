@@ -56,6 +56,7 @@ Figma, Inkscape) et réponse apportée :
 | On pouvait écrire hors de la page (rien n'y est exporté) | Écriture limitée aux pages : curseur « interdit » dehors, traits coupés au bord, formes et tableaux gardés dans la page |
 | Sur téléphone, seules les formes rectangulaires étaient accessibles | Choix de la forme et du remplissage dans la barre rapide |
 | Texte de PDF modifié : autre police, lignes fusionnées, retrait et justification perdus, texte en double | Police d'origine reconstruite depuis les glyphes du PDF, paragraphe reconstruit caractère par caractère (retrait, justification, interligne, gras), texte d'origine retiré ou recouvert, suite de la colonne décalée si le paragraphe change de taille — testé : rendu avant/après identique à 1 % près |
+| Texte scanné ou en image impossible à modifier | OCR sur l'appareil (Tesseract, français), police du scan devinée par comparaison des formes, texte d'origine recouvert de la couleur du fond |
 | Astuces envahissantes | Affichées au début, fermées pour de bon par « Compris » ; panneau Page à la place |
 | PDF inséré au mauvais format (paysage / portrait) | Dialogue : image redimensionnable, pages au format du PDF ou du document, choix des pages |
 
@@ -77,6 +78,9 @@ paragraphes).
   tabulations ni de retraits de première ligne. Les listes sont du texte (puce + espace
   insécable) : elles s'exportent partout, mais le .docx reçoit des puces tapées, pas des
   listes Word natives.
+- **OCR** : la police du scan est choisie parmi les polices courantes (pas la police exacte
+  si elle est rare) ; le texte d'origine est recouvert de la couleur du fond (un fond très
+  texturé laisse voir le rectangle) ; l'OCR se lance page par page.
 - **Mémoire de base d'Electron** : environ 150 Mo par processus (incompressible avec
   Electron). Tauri serait plus léger, mais moins homogène entre Windows, Linux et Android.
 - **Historique** : les changements de calques (masquer, renommer) ne sont pas annulables.
@@ -84,7 +88,7 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **209 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  **221 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
   PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
   superposés, insertion de PDF.
 - `npm run test:mobile` : **17 vérifications** sur un téléphone simulé (Pixel 7, tactile).

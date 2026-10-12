@@ -14,9 +14,35 @@ export interface DocWord extends PdfWord {
 export type MarkupKind = 'highlight' | 'underline' | 'strike'
 
 /** Mots d'une page PDF, placés dans le document (cache côté moteur). */
+/** Mots reconnus par OCR (repère de la page). */
+function ocrWords(page: Page): PdfWord[] {
+  const out: PdfWord[] = []
+  let cur: PdfWord | null = null
+  let line = 10000 // après les lignes du PDF
+  for (const c of page.ocr?.chars ?? []) {
+    if (c.c === '\n' || c.c === ' ') {
+      if (cur) out.push(cur)
+      cur = null
+      if (c.c === '\n') line++
+      continue
+    }
+    if (!cur) cur = { text: c.c, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, line }
+    else {
+      cur.text += c.c
+      cur.x1 = Math.max(cur.x1, c.x1)
+      cur.y0 = Math.min(cur.y0, c.y0)
+      cur.y1 = Math.max(cur.y1, c.y1)
+    }
+  }
+  if (cur) out.push(cur)
+  // Les zones recouvertes (texte remplacé) n'ont plus ce texte.
+  const covers = page.covers ?? []
+  return covers.length ? out.filter((w) => !covers.some(([x0, y0, x1, y1]) => (w.x0 + w.x1) / 2 >= x0 && (w.x0 + w.x1) / 2 <= x1 && (w.y0 + w.y1) / 2 >= y0 && (w.y0 + w.y1) / 2 <= y1)) : out
+}
+
 export async function pageWords(page: Page): Promise<DocWord[]> {
-  if (page.bg.kind !== 'pdf') return []
-  const words = await pdfEngine.words(page.bg.assetId, page.bg.index)
+  if (page.bg.kind !== 'pdf' && !page.ocr) return []
+  const words = [...(page.bg.kind === 'pdf' ? await pdfEngine.words(page.bg.assetId, page.bg.index) : []), ...ocrWords(page)]
   // Le texte des zones modifiées n'existe plus dans le PDF : on l'ignore (recherche, sélection…).
   const masks = page.masks ?? []
   const visible = masks.length

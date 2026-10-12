@@ -3,6 +3,7 @@ import type { Editor } from '../core/editor'
 import type { Page } from '../core/page'
 import { paragraphAt, wordAt, type Box4 } from '../pdf/edit-text'
 import { pageWords } from '../pdf/text'
+import { canRecognize, recognizePage } from '../pdf/ocr'
 import type { Tool, ToolManager } from '../tools/manager'
 import { icon } from './icons'
 
@@ -66,8 +67,36 @@ export class PdfToolsGuide {
     this.markButtons()
   }
 
+  /** Le document a-t-il un PDF ou une image (scan, photo) où chercher du texte ? */
   private get hasPdf(): boolean {
-    return this.ed.doc.pages.some((p) => p.bg.kind === 'pdf')
+    return this.ed.doc.pages.some((p) => p.bg.kind === 'pdf' || p.bg.kind === 'image')
+  }
+
+  private ocrRunning = false
+
+  /** Reconnaissance du texte de la page (scan, photo, texte en image), sur l'appareil. */
+  private async recognize(page: Page): Promise<void> {
+    if (this.ocrRunning) return
+    this.ocrRunning = true
+    this.bannerKey = ''
+    this.banner.querySelectorAll('button').forEach((b) => (b.disabled = true))
+    try {
+      this.ed.notify('Reconnaissance du texte… (la première fois, quelques secondes de préparation)', 'info')
+      const data = await recognizePage(page, (p) => {
+        const label = this.banner.querySelector('.pdf-guide-ocr')
+        if (label) label.textContent = `Reconnaissance… ${Math.round(p * 100)} %`
+      })
+      const words = data.chars.filter((c) => c.c === ' ' || c.c === '\n').length
+      await this.ed.history.transaction(() => page.set({ ocr: data } as never))
+      this.ed.notify(data.chars.length ? `Texte reconnu (${words} mots environ) : il se modifie comme le reste.` : 'Aucun texte trouvé sur cette page.', data.chars.length ? 'success' : 'info')
+    } catch (e) {
+      console.error(e)
+      this.ed.notify('Reconnaissance du texte impossible sur cet appareil.', 'error')
+    } finally {
+      this.ocrRunning = false
+      this.bannerKey = ''
+      void this.refresh()
+    }
   }
 
   /** Grise les outils PDF quand il n'y a aucun PDF (ils restent cliquables : la bande explique). */
@@ -122,7 +151,7 @@ export class PdfToolsGuide {
     const page = (this.lastPoint && this.ed.doc.pageAt(this.lastPoint)) || this.ed.doc.currentPage()
     let state: 'nopdf' | 'notext' | 'ok' = 'ok'
     if (!this.hasPdf) state = 'nopdf'
-    else if (!page || page.bg.kind !== 'pdf' || (await pageWords(page)).length === 0) state = 'notext'
+    else if (!page || (await pageWords(page)).length === 0) state = 'notext'
     const key = `${tool}:${state}`
     if (key === this.bannerKey && !this.banner.hidden) return
     this.bannerKey = key
@@ -137,16 +166,29 @@ export class PdfToolsGuide {
         ? `${icon('edittext', 18)}<span><b>Modifier PDF</b> — survolez le texte : le paragraphe s’encadre. <b>Cliquez</b> pour le réécrire, puis <kbd>Échap</kbd> pour terminer.</span>`
         : `${icon('textselect', 18)}<span><b>Annoter PDF</b> — <b>glissez</b> sur le texte du PDF, puis choisissez <b>Copier</b>, <b>Surligner</b>, <b>Souligner</b> ou <b>Barrer</b>.</span>`
     } else {
-      const why = state === 'nopdf' ? 'Ce document ne contient pas de PDF.' : 'Cette page n’a pas de texte PDF (page ajoutée, image ou PDF scanné).'
+      const why = state === 'nopdf'
+        ? 'Ce document ne contient pas de PDF.'
+        : page && canRecognize(page)
+          ? 'Cette page n’a pas de texte reconnu (scan, photo, texte en image) : lancez la reconnaissance du texte.'
+          : 'Cette page n’a pas de texte (page ajoutée).'
       html = `${icon(edit ? 'edittext' : 'textselect', 18)}<span><b>${name}</b> ${what}. ${why}</span>`
     }
     this.banner.innerHTML = html
     if (state !== 'ok') {
       const actions = document.createElement('span')
       actions.className = 'pdf-guide-actions'
+      // Page sans texte mais avec un scan, une photo ou du texte en image : OCR.
+      if (state === 'notext' && page && canRecognize(page)) {
+        const ocr = document.createElement('button')
+        ocr.type = 'button'
+        ocr.className = 'primary pdf-guide-ocr'
+        ocr.innerHTML = `${icon('textselect', 16)}<span>Reconnaître le texte (OCR)</span>`
+        ocr.addEventListener('click', () => void this.recognize(page))
+        actions.append(ocr)
+      }
       const write = document.createElement('button')
       write.type = 'button'
-      write.className = 'primary'
+      write.className = state === 'notext' && page && canRecognize(page) ? '' : 'primary'
       write.innerHTML = `${icon('text', 16)}Écrire du texte`
       write.addEventListener('click', () => this.actions.writeText())
       actions.append(write)
