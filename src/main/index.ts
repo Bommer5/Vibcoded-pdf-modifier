@@ -181,18 +181,25 @@ ipcMain.on('window:fullscreen', () => mainWindow?.setFullScreen(!mainWindow.isFu
 ipcMain.handle('print:pages', async (_e, pages: { png: Uint8Array; width: number; height: number }[]) => {
   const dir = await mkdtemp(join(tmpdir(), 'feuillet-print-'))
   try {
+    // Une « page nommée » CSS par format : chaque page s'imprime à sa taille (A4, paysage…).
+    const sizes = [...new Set(pages.map((p) => `${p.width.toFixed(2)}pt ${p.height.toFixed(2)}pt`))]
+    const css = sizes.map((s, k) => `@page s${k}{size:${s};margin:0}.s${k}{page:s${k}}`).join('')
     const html = pages
-      .map((p, i) => `<div class="p" style="width:${p.width}pt;height:${p.height}pt"><img src="p${i}.png"></div>`)
+      .map((p, i) => {
+        const k = sizes.indexOf(`${p.width.toFixed(2)}pt ${p.height.toFixed(2)}pt`)
+        return `<div class="p s${k}" style="width:${p.width}pt;height:${p.height}pt"><img src="p${i}.png"></div>`
+      })
       .join('')
-    const first = pages[0]
     await Promise.all(pages.map((p, i) => writeFile(join(dir, `p${i}.png`), p.png)))
     await writeFile(
       join(dir, 'print.html'),
-      `<!doctype html><meta charset="utf-8"><style>@page{size:${first.width}pt ${first.height}pt;margin:0}html,body{margin:0}.p{page-break-after:always;overflow:hidden}.p img{width:100%;height:100%;display:block}</style>${html}`
+      `<!doctype html><meta charset="utf-8"><style>@page{margin:0}${css}html,body{margin:0}.p{break-after:page;overflow:hidden}.p:last-child{break-after:auto}.p img{width:100%;height:100%;display:block}</style>${html}`
     )
     const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } })
     await win.loadFile(join(dir, 'print.html'))
-    const ok = await new Promise<boolean>((resolve) => win.webContents.print({ printBackground: true }, (success) => resolve(success)))
+    const ok = await new Promise<boolean>((resolve) =>
+      win.webContents.print({ printBackground: true, margins: { marginType: 'none' } }, (success) => resolve(success))
+    )
     win.destroy()
     return ok
   } finally {

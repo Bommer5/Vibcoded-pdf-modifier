@@ -187,13 +187,16 @@ const actions: Record<string, () => void | Promise<void>> = {
   'save-as': async () => void (await session.saveAs()),
   print: async () => {
     notify('Préparation de l’impression…')
+    const total = doc.pages.length
     const pages = []
     for (const page of doc.pages) {
-      const canvasEl = await exporter.raster(page, 150)
+      const canvasEl = await exporter.raster(page, 200) // 200 ppp : texte net à l'impression
       const png = new Uint8Array(await (await new Promise<Blob>((r) => canvasEl.toBlob((b) => r(b!), 'image/png'))).arrayBuffer())
       pages.push({ png, width: page.width, height: page.height })
+      if (total > 5) notify(`Préparation de l’impression… ${pages.length} / ${total}`)
     }
-    await platform.print(pages)
+    const ok = await platform.print(pages)
+    notify(ok ? 'Document envoyé à l’imprimante' : 'Impression annulée', ok ? 'success' : 'info')
   },
   fullscreen: () => platform.toggleFullscreen(),
   export: () => exportDialog.open(docName()),
