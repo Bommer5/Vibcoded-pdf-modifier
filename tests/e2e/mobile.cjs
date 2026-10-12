@@ -1,0 +1,80 @@
+// Interface téléphone (Pixel 7, tactile) sur la version web/Android.
+// Utilisation : node tests/e2e/mobile.cjs <racine> <sortie>   (après npm run build:web)
+const { chromium, devices } = require('playwright')
+const http = require('http'), fs = require('fs'), path = require('path')
+const [root, outDir] = process.argv.slice(2)
+fs.mkdirSync(outDir, { recursive: true })
+const results = []
+const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${name} ${extra}`)
+const webRoot = path.join(root, 'out/web')
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.ttf': 'font/ttf' }
+const server = http.createServer((req, res) => {
+  const file = path.join(webRoot, decodeURIComponent(req.url.split('?')[0]) === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]))
+  if (!file.startsWith(webRoot) || !fs.existsSync(file)) return res.writeHead(404).end()
+  res.writeHead(200, { 'content-type': types[path.extname(file)] ?? 'application/octet-stream' })
+  fs.createReadStream(file).pipe(res)
+})
+
+;(async () => {
+  await new Promise((r) => server.listen(0, r))
+  const { PDFDocument, StandardFonts } = require('pdf-lib')
+  const pdf = await PDFDocument.create()
+  const font = await pdf.embedFont(StandardFonts.Helvetica)
+  for (let i = 1; i <= 5; i++) pdf.addPage([595.28, 841.89]).drawText(`Page ${i} sur téléphone`, { x: 60, y: 760, size: 20, font })
+  const pdfFile = path.join(outDir, 'mobile.pdf')
+  fs.writeFileSync(pdfFile, await pdf.save())
+
+  const browser = await chromium.launch()
+  const ctx = await browser.newContext({ ...devices['Pixel 7'] })
+  const page = await ctx.newPage()
+  const errors = []
+  page.on('pageerror', (e) => errors.push(String(e)))
+  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`)
+  await page.waitForFunction(() => window.__feuillet)
+  const vw = await page.evaluate(() => ({ w: innerWidth, h: innerHeight, sw: document.documentElement.scrollWidth }))
+  check('no horizontal overflow', vw.sw <= vw.w, JSON.stringify(vw))
+  const bar = await page.locator('#toolbar').boundingBox()
+  check('toolbar at the bottom (thumb reach)', bar.y > vw.h - 90 && bar.width >= vw.w - 2, JSON.stringify(bar))
+  const small = await page.evaluate(() => [...document.querySelectorAll('#toolbar button, .topbar button')].filter((b) => b.offsetParent && (b.offsetWidth < 44 || b.offsetHeight < 44)).map((b) => b.title || b.textContent))
+  check('touch targets ≥ 44 px', small.length === 0, JSON.stringify(small))
+
+  // Menu plein écran → Fichier › Ouvrir
+  await page.tap('[data-action=mobile-menu]')
+  await page.waitForSelector('.menu-sheet:not([hidden])')
+  await page.screenshot({ path: path.join(outDir, 'm1-menu.png') })
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.tap('.menu-sheet .menu-item:has-text("Ouvrir…")')])
+  await chooser.setFiles(pdfFile)
+  await page.waitForFunction(() => window.__feuillet.editor.doc.pages.length === 5, null, { timeout: 20000 })
+  check('menu sheet: open a PDF', true)
+  check('menu sheet closes after choice', await page.locator('.menu-sheet').isHidden())
+
+  // Stylo + tracé
+  await page.tap('[data-tool=pen]')
+  const ws = await page.locator('#workspace').boundingBox()
+  await page.mouse.move(ws.x + 80, ws.y + 200); await page.mouse.down(); await page.mouse.move(ws.x + 250, ws.y + 260, { steps: 8 }); await page.mouse.up()
+  const strokes = await page.evaluate(() => window.__feuillet.editor.doc.content.length)
+  check('draw on phone', strokes === 1, `objets=${strokes}`)
+  const qb = await page.locator('.quickbar').boundingBox()
+  check('quick bar fits the screen', qb && qb.x >= 0 && qb.x + qb.width <= vw.w + 1, JSON.stringify(qb))
+  await page.screenshot({ path: path.join(outDir, 'm2-pen.png') })
+
+  // Tiroir des propriétés
+  await page.tap('[data-action=toggle-props]')
+  const props = await page.locator('#properties').boundingBox()
+  check('properties as bottom sheet', props && props.y + props.height >= vw.h - 2 && props.height <= vw.h * 0.62, JSON.stringify(props))
+  await page.screenshot({ path: path.join(outDir, 'm3-props.png') })
+  await page.tap('[data-action=toggle-props]')
+
+  // Panneau des pages
+  await page.tap('[data-action=toggle-sidebar]')
+  await page.waitForTimeout(500)
+  const thumbs = await page.locator('.thumb').count()
+  check('pages drawer on phone', thumbs === 5, `miniatures=${thumbs}`)
+  await page.screenshot({ path: path.join(outDir, 'm4-pages.png') })
+
+  console.log(results.join('\n'))
+  console.log('errors:', errors)
+  await browser.close()
+  server.close()
+  if (results.some((r) => r.startsWith('FAIL')) || errors.length) process.exit(1)
+})().catch((e) => { console.log(results.join('\n')); console.error(e); server.close(); process.exit(1) })

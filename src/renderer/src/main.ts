@@ -231,6 +231,7 @@ const actions: Record<string, () => void | Promise<void>> = {
 Object.assign(actions, {
   'select-all': () => editing.selectAll(),
   'toggle-props': () => void $('properties').classList.toggle('open'),
+  'mobile-menu': () => menuBar.openSheet(),
   shortcuts: () => {
     const list = $('shortcuts-list')
     const rows: [string, ActionId][] = [
@@ -407,7 +408,7 @@ const menus: Menu[] = [
 ]
 
 const needsSelection = new Set(['cut', 'copy', 'duplicate', 'delete', 'group', 'ungroup', 'front', 'back'])
-new MenuBar($('menubar'), menus, (a) => run(a)(), shortcuts, (a) => {
+const menuBar = new MenuBar($('menubar'), menus, (a) => run(a)(), shortcuts, (a) => {
   if (a === 'noop') return false
   if (a === 'undo') return history.canUndo
   if (a === 'redo') return history.canRedo

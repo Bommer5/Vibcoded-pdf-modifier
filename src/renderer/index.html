@@ -12,6 +12,7 @@
   <body>
     <div id="app">
       <header class="topbar">
+        <button data-action="mobile-menu" class="icon-btn mobile-only" title="Menu" aria-label="Menu">≡</button>
         <button data-action="toggle-sidebar" class="icon-btn" title="Pages, sommaire et calques (F9)" aria-label="Panneau latéral">▤</button>
         <span class="brand">Feuillet</span>
         <nav class="menubar" id="menubar" aria-label="Menus"></nav>
@@ -19,7 +20,7 @@
         <button data-action="undo" title="Annuler (Ctrl+Z)" aria-label="Annuler">↶</button>
         <button data-action="redo" title="Rétablir (Ctrl+Maj+Z / Ctrl+Y)" aria-label="Rétablir">↷</button>
         <span class="sep"></span>
-        <button data-action="add-page" title="Ajouter une page A4 après la page actuelle">+ Page</button>
+        <button data-action="add-page" class="desktop-only" title="Ajouter une page après la page actuelle">+ Page</button>
         <span class="spacer"></span>
         <span class="page-nav" title="Aller à la page (Ctrl+G)">
           Page <input id="page-input" type="number" min="1" value="1" aria-label="Numéro de page" /> / <span id="page-count">1</span>

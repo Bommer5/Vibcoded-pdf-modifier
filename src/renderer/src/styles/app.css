@@ -73,22 +73,7 @@ button.primary:hover { background: #3f7cf0; }
 }
 .dialog menu { display: flex; justify-content: flex-end; gap: 8px; margin: 16px 0 0; padding: 0; }
 .small { font-size: 12px; }
-@media (max-width: 700px) {
-  .topbar { overflow-x: auto; }
-  .statusbar { display: none; }
-  #app { grid-template-rows: 44px 1fr 0; grid-template-columns: 48px auto 1fr 0; }
-  .sidebar.open { position: fixed; left: 48px; top: 44px; bottom: 0; z-index: 24; box-shadow: 10px 0 30px #0008; }
-  .page-nav { display: none; }
-  .properties { display: none; }
-  .properties.open {
-    display: flex; position: fixed; left: 0; right: 0; bottom: 0; max-height: 55vh; z-index: 25;
-    border-left: none; border-top: 1px solid var(--panel-border); border-radius: 14px 14px 0 0;
-    box-shadow: 0 -10px 30px #0008;
-  }
-  .toolbar { overflow-y: auto; }
-  #pointer-info { display: none; }
-}
-@media (min-width: 701px) { .mobile-only { display: none; } }
+
 
 .tool-sep { height: 1px; background: var(--panel-border); margin: 4px 2px; }
 .properties {
@@ -221,3 +206,60 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 .toast.has-action { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toast.has-action button { border: 1px solid var(--panel-border); }
+
+/* ---------- Téléphone : barre d'outils en bas, menu plein écran, cibles tactiles de 44 px ---------- */
+.mobile-only { display: none; }
+html, body { overscroll-behavior: none; }
+@media (max-width: 700px) {
+  .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
+  .desktop-only, .brand, .menubar, .statusbar, #pointer-info, .zoom-label + button, button[data-action="zoom-out"] { display: none !important; }
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: calc(48px + env(safe-area-inset-top)) 1fr calc(60px + env(safe-area-inset-bottom));
+    grid-template-areas: 'top' 'work' 'tools';
+  }
+  .topbar { padding: env(safe-area-inset-top) 6px 0; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .topbar button { min-width: 44px; min-height: 44px; font-size: 18px; }
+  .zoom-label { min-width: 52px; font-size: 13px; }
+  .page-nav { display: flex; font-size: 12px; }
+  .page-nav input { width: 40px; }
+  .toolbar {
+    grid-area: tools; flex-direction: row; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); border-right: none; border-top: 1px solid var(--panel-border); gap: 6px;
+  }
+  .toolbar button { flex: 0 0 auto; width: 48px; height: 48px; font-size: 20px; }
+  .tool-sep { width: 1px; height: auto; margin: 6px 2px; }
+  .sidebar { display: none; }
+  .sidebar.open { display: flex; position: fixed; left: 0; top: 0; bottom: 0; width: min(80vw, 300px); z-index: 26; box-shadow: 10px 0 30px #0008; padding-top: env(safe-area-inset-top); }
+  .properties { display: none; }
+  .properties.open {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; max-height: 60vh; z-index: 25;
+    border-left: none; border-top: 1px solid var(--panel-border); border-radius: 16px 16px 0 0;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -10px 30px #0008;
+  }
+  .properties button, .properties select { min-height: 40px; }
+  .swatch { width: 30px; height: 30px; }
+  .selection-bar { bottom: 10px; max-width: calc(100vw - 20px); overflow-x: auto; scrollbar-width: none; }
+  .selection-bar button { min-height: 40px; }
+  .quickbar { top: 8px; max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; gap: 6px; }
+  .qb-size, .qb-style { width: 40px; height: 40px; }
+  .find-bar { left: 8px; right: 8px; top: 8px; }
+  .find-bar input { flex: 1; width: auto; min-width: 0; }
+  .thumb-actions { display: flex; }
+  .toast { max-width: calc(100vw - 32px); }
+  .toasts { right: 16px; left: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .dialog { width: calc(100vw - 16px); max-height: calc(100vh - 32px); overflow: auto; padding: 16px; }
+}
+@media (hover: none) { .thumb-actions { display: flex; } }
+@media (pointer: coarse) { .toolbar button { min-width: 44px; min-height: 44px; } }
+
+/* Menu plein écran (téléphone) */
+.menu-sheet { position: fixed; inset: 0; z-index: 40; background: var(--panel); display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+.menu-sheet[hidden] { display: none; }
+.menu-sheet header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--panel-border); font-weight: 600; }
+.menu-sheet header button { min-width: 44px; min-height: 44px; font-size: 20px; }
+.menu-sheet .sheet-body { overflow-y: auto; padding: 8px 12px 24px; }
+.menu-sheet h4 { margin: 14px 4px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.menu-sheet .menu-item { width: 100%; min-height: 48px; font-size: 15px; }
+@media (pointer: coarse) { .menu-sheet kbd { display: none; } }
+.menu-sheet header span { font-size: 16px; background: none; }

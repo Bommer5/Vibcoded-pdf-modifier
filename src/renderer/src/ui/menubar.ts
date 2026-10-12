@@ -68,7 +68,40 @@ export class MenuBar {
     this.panels.push(panel)
   }
 
-  private fill(menu: Menu, panel: HTMLElement): void {
+  /** Téléphone : tous les menus dans une feuille plein écran (mêmes entrées que sur PC). */
+  openSheet(): void {
+    let sheet = document.querySelector<HTMLElement>('.menu-sheet')
+    if (!sheet) {
+      sheet = document.createElement('div')
+      sheet.className = 'menu-sheet'
+      sheet.setAttribute('role', 'dialog')
+      sheet.setAttribute('aria-label', 'Menu')
+      document.body.append(sheet)
+    }
+    const close = (): void => {
+      sheet!.hidden = true
+    }
+    const header = document.createElement('header')
+    header.innerHTML = '<span>Feuillet</span>'
+    const x = document.createElement('button')
+    x.textContent = '✕'
+    x.setAttribute('aria-label', 'Fermer le menu')
+    x.addEventListener('click', close)
+    header.append(x)
+    const body = document.createElement('div')
+    body.className = 'sheet-body'
+    for (const menu of this.menus) {
+      const h = document.createElement('h4')
+      h.textContent = menu.label
+      const panel = document.createElement('div')
+      this.fill(menu, panel, close)
+      body.append(h, panel)
+    }
+    sheet.replaceChildren(header, body)
+    sheet.hidden = false
+  }
+
+  private fill(menu: Menu, panel: HTMLElement, onRun: () => void = () => this.close()): void {
     panel.replaceChildren()
     // Entrées dynamiques (ex. fichiers récents) : calculées à l'ouverture du menu.
     for (const entry of menu.items.flatMap((e) => (typeof e === 'function' ? e() : [e]))) {
@@ -85,7 +118,7 @@ export class MenuBar {
       item.firstElementChild!.textContent = entry.label
       if (entry.hint) item.title = entry.hint
       item.addEventListener('click', () => {
-        this.close()
+        onRun()
         this.run(entry.action)
       })
       panel.append(item)
