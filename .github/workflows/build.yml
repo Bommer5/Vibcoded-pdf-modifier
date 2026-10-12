@@ -77,7 +77,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - run: npm ci
       - run: npm run android:sync
       - run: ./gradlew assembleDebug
