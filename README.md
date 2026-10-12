@@ -61,7 +61,7 @@ npm run android:sync # met à jour le projet Android (puis npm run android:open)
 xvfb-run -a npm run test:e2e   # tests de bout en bout (Linux sans écran)
 ```
 
-La CI GitHub Actions (`docs/ci/build.yml`, à copier dans `.github/workflows/`) construit à chaque push l'AppImage, le .deb, l'installeur Windows et l'APK Android.
+La CI GitHub Actions (`.github/workflows/build.yml`) construit à chaque push l'AppImage, le .deb, l'installeur Windows et l'APK Android.
 
 ## Raccourcis (par défaut)
 
