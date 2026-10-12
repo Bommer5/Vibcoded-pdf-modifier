@@ -3,6 +3,16 @@
 Éditeur de PDF, documents et images pour **Windows**, **Linux** et **Android**, pensé
 pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Android…).
 
+## Outils
+
+- **Stylo** sensible à la pression, traits pleins, en tirets ou en pointillés ; ligne droite avec Maj
+- **Surligneur**, **gomme** (partielle ou trait entier ; le bout gomme du stylet est reconnu)
+- **Formes** : ligne, flèche, rectangle, ellipse, triangle
+- **Texte** façon Word. Avec l'outil Texte : un **clic** crée un texte, un **glisser** crée une zone
+  rectangulaire, et **entourer une zone à main levée** fait épouser au texte la forme dessinée
+- **Tableaux** (double-clic sur une cellule, Tab pour passer à la suivante) et **graphiques**
+  (barres, courbes, secteurs, radar…, données collables depuis Excel)
+
 ## Formats
 
 | | Ouvrir / insérer | Exporter |
@@ -42,7 +52,10 @@ La CI GitHub Actions (`docs/ci/build.yml`, à copier dans `.github/workflows/`) 
 | Ajuster à la page | Ctrl+0 |
 | Déplacer la vue | Espace maintenu, outil Main (H), clic molette |
 | Annuler / Rétablir | Ctrl+Z / Ctrl+Maj+Z ou Ctrl+Y |
-| Sélection / Stylo / Main | V / P / H |
+| Sélection / Stylo / Surligneur / Gomme | V / P / S / E |
+| Formes / Texte / Main | R / T / H |
+| Ligne droite (stylo, surligneur) | Maj, ou stylet immobile en fin de trait |
+| Gras / Italique / Souligné (en écrivant) | Ctrl+B / Ctrl+I / Ctrl+U |
 | Ouvrir / Insérer / Enregistrer / Exporter | Ctrl+O / Ctrl+I / Ctrl+S / Ctrl+E |
 | Copier / Couper / Coller (sous le pointeur) | Ctrl+C / Ctrl+X / Ctrl+V |
 | Dupliquer / Tout sélectionner | Ctrl+D / Ctrl+A |

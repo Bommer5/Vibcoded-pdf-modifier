@@ -32,6 +32,10 @@ export type ActionId =
   | 'nudge.down.big'
   | 'tool.select'
   | 'tool.pen'
+  | 'tool.highlighter'
+  | 'tool.eraser'
+  | 'tool.shape'
+  | 'tool.text'
   | 'tool.hand'
 
 /** Copier / Couper / Coller passent par les évènements presse-papiers du système (voir editing.ts). */
@@ -65,6 +69,10 @@ export const DEFAULT_BINDINGS: Record<ActionId, string[]> = {
   'nudge.down.big': ['Shift+ArrowDown'],
   'tool.select': ['KeyV'],
   'tool.pen': ['KeyP'],
+  'tool.highlighter': ['KeyS'],
+  'tool.eraser': ['KeyE'],
+  'tool.shape': ['KeyR'],
+  'tool.text': ['KeyT'],
   'tool.hand': ['KeyH']
 }
 

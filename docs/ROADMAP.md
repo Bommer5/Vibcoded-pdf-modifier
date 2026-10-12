@@ -46,21 +46,27 @@ Limites honnêtes :
 - [ ] 1.6 Historique robuste (commandes différentielles plutôt qu'instantanés)
 
 ## Phase 2 — Stylet et dessin
-- [ ] 2.1 Pinceau à pression (épaisseur variable, lissage type Perfect Freehand)
-- [ ] 2.2 Surligneur (transparent, multiplicatif)
-- [ ] 2.3 Gomme : par objet et partielle ; bouton gomme du stylet reconnu automatiquement
-- [ ] 2.4 **Lignes droites : maintenir Maj** pendant le tracé (angles bloqués à 15°)
+- [x] 2.1 Stylo à pression (perfect-freehand), traits lissés, évènements coalescés
+- [x] 2.2 Surligneur (transparent, multiplicatif)
+- [x] 2.3 Gomme partielle ou trait entier ; bout gomme du stylet reconnu automatiquement
+- [x] 2.4 **Lignes droites : Maj** (aimantation 45°) ou **stylet immobile en fin de trait**
+- [x] 2.4b Traits pleins, tirets, pointillés
 - [ ] 2.5 Bouton latéral du stylet configurable (ex. Main, Gomme, Sélection)
-- [ ] 2.6 Rejet de la paume (ignorer le tactile quand le stylet est proche)
+- [x] 2.6 Rejet de la paume (le doigt déplace la vue dès qu'un stylet est détecté)
 - [ ] 2.7 Courbe de pression réglable, test de la tablette dans les préférences
 
-## Phase 3 — Formes et texte
-- [ ] 3.1 Ligne, flèche, rectangle, carré (Maj), ellipse, cercle (Maj), triangle, polygone, étoile
-- [ ] 3.2 Tableau : lignes × colonnes, redimensionnement, texte dans les cellules
-- [ ] 3.3 Zone de texte : police, taille, gras/italique/souligné, alignement, interligne
-- [ ] 3.4 Couleurs : contour, remplissage, opacité, pipette, palette récente, sélecteur HSV
-- [ ] 3.5 Épaisseur et style de trait (plein, pointillé), extrémités de flèches
-- [ ] 3.6 Panneau Propriétés contextuel (s'adapte à l'objet sélectionné)
+## Phase 3 — Formes, texte, tableaux, graphiques
+- [x] 3.1 Ligne, flèche, rectangle, carré (Maj), ellipse, cercle (Maj), triangle
+- [ ] 3.1b Polygone, étoile, bulles de dialogue
+- [x] 3.2 Tableau : lignes × colonnes, cellules éditables (Tab), en-tête, bandes, redimensionnement sans déformer le texte
+- [x] 3.3 Texte façon Word : police, taille, gras/italique/souligné/barré (Ctrl+B/I/U), alignement gauche/centre/droite/justifié, interligne, couleur, surlignage
+- [x] 3.3b **Zone de texte dessinée à la main** : le texte épouse la forme entourée
+- [x] 3.4 Couleurs : contour, remplissage, opacité, nuancier + couleur libre
+- [ ] 3.4b Pipette, couleurs récentes
+- [x] 3.5 Épaisseur et style de trait (plein, tirets, pointillés)
+- [x] 3.6 Panneau Propriétés contextuel (tiroir sur mobile)
+- [x] 3.7 Graphiques vectoriels : histogramme, barres, empilé, courbes, aires, secteurs, anneau, nuage de points, radar ; données collables depuis Excel ; rééditables
+- [x] 3.8 Barre de menus (Fichier, Édition, Insertion, Outils, Affichage, Aide) avec raccourcis affichés
 
 ## Phase 4 — Calques
 - [ ] 4.1 Panneau Calques : créer, renommer, supprimer, réordonner (glisser-déposer)
@@ -121,6 +127,6 @@ Limites honnêtes :
 - [ ] 9.1 Icône, nom, identité visuelle
 - [ ] 9.2 Installeurs signés (certificat Windows), AppImage + .deb
 - [ ] 9.3 Mises à jour automatiques (electron-updater)
-- [x] 9.4 Tests de bout en bout (Playwright + Electron, 26 vérifications) et CI GitHub Actions (PC + APK Android)
+- [x] 9.4 Tests de bout en bout (Playwright + Electron, 40 vérifications) et CI GitHub Actions (PC + APK Android)
 - [ ] 9.5 Licence : vérifier les dépendances (toutes MIT/Apache ici), CGU, licence logicielle
 - [ ] 9.6 Rapports de plantage (opt-in), page de site, documentation utilisateur

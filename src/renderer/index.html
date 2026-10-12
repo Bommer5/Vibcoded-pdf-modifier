@@ -13,11 +13,7 @@
     <div id="app">
       <header class="topbar">
         <span class="brand">Feuillet</span>
-        <button data-action="new" title="Nouveau document A4 (Ctrl+N)">Nouveau</button>
-        <button data-action="open" title="Ouvrir (Ctrl+O)">Ouvrir</button>
-        <button data-action="insert" title="Insérer un fichier : image, PDF, document… (Ctrl+I)">Insérer</button>
-        <button data-action="save" title="Enregistrer le projet (Ctrl+S)">Enregistrer</button>
-        <button data-action="export" title="Exporter : PDF, images, Word… (Ctrl+E)">Exporter</button>
+        <nav class="menubar" id="menubar" aria-label="Menus"></nav>
         <span class="sep"></span>
         <button data-action="undo" title="Annuler (Ctrl+Z)" aria-label="Annuler">↶</button>
         <button data-action="redo" title="Rétablir (Ctrl+Maj+Z / Ctrl+Y)" aria-label="Rétablir">↷</button>
@@ -25,14 +21,23 @@
         <button data-action="add-page" title="Ajouter une page A4 après la page actuelle">+ Page</button>
         <span class="spacer"></span>
         <span id="pointer-info" class="muted"></span>
+        <button data-action="toggle-props" class="mobile-only" title="Propriétés" aria-label="Propriétés">⚙</button>
         <button data-action="zoom-out" title="Zoom arrière" aria-label="Zoom arrière">−</button>
         <button data-action="zoom-fit" id="zoom-label" class="zoom-label" title="Ajuster à la page (Ctrl+0)">100 %</button>
         <button data-action="zoom-in" title="Zoom avant" aria-label="Zoom avant">+</button>
       </header>
-      <aside class="toolbar" id="toolbar">
+      <aside class="toolbar" id="toolbar" aria-label="Outils">
         <button data-tool="select" title="Sélection (V)" aria-label="Sélection">⬚</button>
-        <button data-tool="pen" title="Stylo (P)" aria-label="Stylo">✎</button>
         <button data-tool="hand" title="Main (H, ou maintenir Espace)" aria-label="Main">✋</button>
+        <span class="tool-sep"></span>
+        <button data-tool="pen" title="Stylo (P) — Maj : ligne droite" aria-label="Stylo">✎</button>
+        <button data-tool="highlighter" title="Surligneur (S)" aria-label="Surligneur">🖍</button>
+        <button data-tool="eraser" title="Gomme (E)" aria-label="Gomme">⌫</button>
+        <button data-tool="shape" title="Formes : ligne, flèche, rectangle, ellipse… (R)" aria-label="Formes">◇</button>
+        <span class="tool-sep"></span>
+        <button data-tool="text" title="Texte (T)" aria-label="Texte">T</button>
+        <button data-tool="table" title="Tableau" aria-label="Tableau">▦</button>
+        <button data-action="chart" title="Insérer un graphique" aria-label="Graphique">📊</button>
       </aside>
       <main class="workspace" id="workspace">
         <canvas id="stage"></canvas>
@@ -51,11 +56,19 @@
         </div>
         <div class="drop-overlay" id="drop-overlay" hidden>Déposez vos fichiers ici</div>
       </main>
+      <aside class="properties" id="properties" aria-label="Propriétés"></aside>
       <footer class="statusbar">
         <span>Zoom : <kbd id="key-zoom-in"></kbd> / <kbd id="key-zoom-out"></kbd> (sur le pointeur) · Ctrl+molette · Espace = déplacer · Glissez des fichiers pour les insérer</span>
       </footer>
     </div>
     <div class="toasts" id="toasts" aria-live="polite"></div>
+    <dialog id="shortcuts-dialog" class="dialog">
+      <form method="dialog">
+        <h2>Raccourcis clavier</h2>
+        <div id="shortcuts-list" class="shortcuts-list"></div>
+        <menu><button value="ok" class="primary">Fermer</button></menu>
+      </form>
+    </dialog>
     <dialog id="export-dialog" class="dialog">
       <form method="dialog">
         <h2>Exporter</h2>

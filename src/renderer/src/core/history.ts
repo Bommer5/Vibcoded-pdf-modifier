@@ -45,6 +45,16 @@ export class History {
     }
   }
 
+  /** Ouvre une étape manuelle (geste de gomme…) ; à refermer par `end()`. */
+  begin(): void {
+    this.suspended++
+  }
+
+  end(): void {
+    this.suspended = Math.max(0, this.suspended - 1)
+    this.record()
+  }
+
   /** Enregistre l'état courant comme nouvelle étape. */
   record(): void {
     if (this.suspended > 0) return

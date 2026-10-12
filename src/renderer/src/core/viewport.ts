@@ -13,6 +13,8 @@ export class Viewport {
   private pointer: Point | null = null
   private spaceHeld = false
   private handTool = false
+  /** Un doigt déplace la vue (activé quand un stylet est utilisé : rejet de la paume). */
+  private touchPan = false
   private drag: { id: number; last: Point } | null = null
   /** Doigts posés (écrans tactiles) : deux doigts = pincer pour zoomer + déplacer. */
   private touches = new Map<number, Point>()
@@ -42,6 +44,10 @@ export class Viewport {
 
   get zoom(): number {
     return this.canvas.getZoom()
+  }
+
+  setTouchPan(active: boolean): void {
+    this.touchPan = active
   }
 
   setHandTool(active: boolean): void {
@@ -113,7 +119,8 @@ export class Viewport {
       }
     }
     const middle = e.button === 1
-    if (!this.panning && !middle) return
+    const finger = e.pointerType === 'touch' && this.touchPan
+    if (!this.panning && !middle && !finger) return
     e.preventDefault()
     e.stopPropagation() // le canevas ne doit ni dessiner ni sélectionner pendant le déplacement
     this.host.setPointerCapture(e.pointerId)

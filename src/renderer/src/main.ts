@@ -1,18 +1,24 @@
-import { Canvas, PencilBrush, Point, util, type FabricObject } from 'fabric'
+import { Canvas, Point, util, type FabricObject } from 'fabric'
 import './styles/app.css'
 import './core/props'
 import { DocumentModel } from './core/document'
 import { Editing } from './core/editing'
 import type { Editor, NoticeKind } from './core/editor'
 import { History } from './core/history'
-import { prettyCombo, ShortcutManager } from './core/shortcuts'
+import { prettyCombo, ShortcutManager, type ActionId } from './core/shortcuts'
 import { Viewport } from './core/viewport'
 import { ExportDialog } from './ui/export-dialog'
 import { EXPORT_FORMATS, Exporter } from './io/exporter'
 import { Importer, OPEN_FILTERS } from './io/importer'
 import { platform } from './platform'
-
-type Tool = 'select' | 'pen' | 'hand'
+import { defaultChart } from './charts/chart'
+import { editChart } from './charts/chart-dialog'
+import { chartObject, isChart } from './charts/chart-object'
+import { TableEditor } from './objects/table-editor'
+import { ToolManager, type Tool } from './tools/manager'
+import { MenuBar, type Menu } from './ui/menubar'
+import { PropertiesPanel } from './ui/properties'
+import { settings } from './tools/settings'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 const workspace = $('workspace')
@@ -72,23 +78,26 @@ new ResizeObserver(() => canvas.setDimensions({ width: workspace.clientWidth, he
 
 // --- Outils --------------------------------------------------------------------
 
-const brush = new PencilBrush(canvas)
-brush.color = '#1b1b1f'
-brush.width = 2
-canvas.freeDrawingBrush = brush
+const tools = new ToolManager(editor)
+const tableEditor = new TableEditor(editor)
+const properties = new PropertiesPanel(editor, tools, tableEditor)
 
 function setTool(tool: Tool): void {
-  canvas.isDrawingMode = tool === 'pen'
-  canvas.selection = tool === 'select'
-  viewport.setHandTool(tool === 'hand')
-  if (tool !== 'select') {
-    canvas.discardActiveObject()
-    canvas.requestRenderAll()
-  }
-  document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool))
+  tools.set(tool)
 }
+tools.onChange((tool) =>
+  document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool))
+)
 document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool as Tool)))
 setTool('select')
+
+// Double-clic sur un graphique : rééditer ses données.
+canvas.on('mouse:dblclick', ({ target }) => {
+  if (target && isChart(target)) {
+    canvas.setActiveObject(target)
+    document.querySelector<HTMLButtonElement>('.properties button.primary')?.click()
+  }
+})
 
 // Périphérique détecté : toute tablette exposant des Pointer Events (Wacom, XP-Pen, Huion, Windows Ink…) fonctionne.
 workspace.addEventListener('pointermove', (e) => {
@@ -152,12 +161,131 @@ const actions: Record<string, () => void | Promise<void>> = {
   group: () => editing.group(),
   ungroup: () => editing.ungroup(),
   front: () => editing.arrange('front'),
-  back: () => editing.arrange('back')
+  back: () => editing.arrange('back'),
+  chart: async () => {
+    const spec = await editChart(defaultChart())
+    if (!spec) return
+    const obj = await chartObject(spec)
+    const page = doc.currentPage() ?? doc.pages[0]
+    obj.setPositionByOrigin(new Point(page.left + page.width / 2, page.top + page.height / 3), 'center', 'center')
+    await history.transaction(() => editor.add(obj))
+    setTool('select')
+    canvas.setActiveObject(obj)
+    canvas.requestRenderAll()
+  }
 }
 
+Object.assign(actions, {
+  'select-all': () => editing.selectAll(),
+  'toggle-props': () => void $('properties').classList.toggle('open'),
+  shortcuts: () => {
+    const list = $('shortcuts-list')
+    const rows: [string, ActionId][] = [
+      ['Ouvrir', 'open'], ['Insérer un fichier', 'insert'], ['Enregistrer', 'save'], ['Exporter', 'export'],
+      ['Annuler', 'undo'], ['Rétablir', 'redo'], ['Dupliquer', 'duplicate'], ['Tout sélectionner', 'selectAll'],
+      ['Grouper', 'group'], ['Dégrouper', 'ungroup'], ['Supprimer', 'delete'],
+      ['Zoom avant (sur le pointeur)', 'zoomIn'], ['Zoom arrière', 'zoomOut'], ['Ajuster à la page', 'zoomReset'],
+      ['Sélection', 'tool.select'], ['Stylo', 'tool.pen'], ['Surligneur', 'tool.highlighter'], ['Gomme', 'tool.eraser'],
+      ['Formes', 'tool.shape'], ['Texte', 'tool.text'], ['Main', 'tool.hand']
+    ]
+    list.innerHTML = ''
+    for (const [label, id] of rows) {
+      list.append(Object.assign(document.createElement('span'), { textContent: label }))
+      list.append(Object.assign(document.createElement('kbd'), { textContent: shortcuts.get(id).map(prettyCombo).join('  ou  ') }))
+    }
+    for (const [label, keys] of [
+      ['Copier / Couper / Coller', 'Ctrl+C / Ctrl+X / Ctrl+V'],
+      ['Déplacer la vue', 'Espace maintenu, clic molette'],
+      ['Ligne droite (stylo, surligneur)', 'Maj, ou stylet immobile en fin de trait'],
+      ['Carré, cercle, angle aimanté (formes)', 'Maj'],
+      ['Gras / Italique / Souligné (en écrivant)', 'Ctrl+B / Ctrl+I / Ctrl+U']
+    ]) {
+      list.append(Object.assign(document.createElement('span'), { textContent: label }))
+      list.append(Object.assign(document.createElement('kbd'), { textContent: keys }))
+    }
+    ;($('shortcuts-dialog') as HTMLDialogElement).showModal()
+  }
+})
+
 const run = (name: string) => (): void => {
+  if (name.startsWith('tool:')) return setTool(name.slice(5) as Tool)
   void Promise.resolve(actions[name]?.()).then(refreshButtons)
 }
+
+const menus: Menu[] = [
+  {
+    label: 'Fichier',
+    items: [
+      { label: 'Nouveau document A4', action: 'new', shortcut: 'new' },
+      { label: 'Ouvrir…', action: 'open', shortcut: 'open', hint: 'PDF, images, Word, Excel, PowerPoint, Xournal…' },
+      '-',
+      { label: 'Enregistrer le projet…', action: 'save', shortcut: 'save' },
+      { label: 'Exporter…', action: 'export', shortcut: 'export', hint: 'PDF, PNG, JPEG, SVG, Word, OpenDocument…' }
+    ]
+  },
+  {
+    label: 'Édition',
+    items: [
+      { label: 'Annuler', action: 'undo', shortcut: 'undo' },
+      { label: 'Rétablir', action: 'redo', shortcut: 'redo' },
+      '-',
+      { label: 'Couper', action: 'cut' },
+      { label: 'Copier', action: 'copy' },
+      { label: 'Coller', action: 'paste' },
+      { label: 'Dupliquer', action: 'duplicate', shortcut: 'duplicate' },
+      { label: 'Supprimer', action: 'delete', shortcut: 'delete' },
+      '-',
+      { label: 'Tout sélectionner', action: 'select-all', shortcut: 'selectAll' },
+      { label: 'Grouper', action: 'group', shortcut: 'group' },
+      { label: 'Dégrouper', action: 'ungroup', shortcut: 'ungroup' },
+      { label: 'Premier plan', action: 'front', shortcut: 'front' },
+      { label: 'Arrière-plan', action: 'back', shortcut: 'back' }
+    ]
+  },
+  {
+    label: 'Insertion',
+    items: [
+      { label: 'Image, PDF ou document…', action: 'insert', shortcut: 'insert' },
+      { label: 'Page vierge', action: 'add-page' },
+      '-',
+      { label: 'Zone de texte', action: 'tool:text', shortcut: 'tool.text', hint: 'Cliquez, glissez, ou entourez une zone à main levée' },
+      { label: 'Tableau', action: 'tool:table' },
+      { label: 'Graphique…', action: 'chart' },
+      { label: 'Forme', action: 'tool:shape', shortcut: 'tool.shape' }
+    ]
+  },
+  {
+    label: 'Outils',
+    items: [
+      { label: 'Sélection', action: 'tool:select', shortcut: 'tool.select' },
+      { label: 'Stylo', action: 'tool:pen', shortcut: 'tool.pen' },
+      { label: 'Surligneur', action: 'tool:highlighter', shortcut: 'tool.highlighter' },
+      { label: 'Gomme', action: 'tool:eraser', shortcut: 'tool.eraser' },
+      { label: 'Formes', action: 'tool:shape', shortcut: 'tool.shape' },
+      { label: 'Texte', action: 'tool:text', shortcut: 'tool.text' },
+      { label: 'Main', action: 'tool:hand', shortcut: 'tool.hand' }
+    ]
+  },
+  {
+    label: 'Affichage',
+    items: [
+      { label: 'Zoom avant', action: 'zoom-in', shortcut: 'zoomIn' },
+      { label: 'Zoom arrière', action: 'zoom-out', shortcut: 'zoomOut' },
+      { label: 'Ajuster à la page', action: 'zoom-fit', shortcut: 'zoomReset' }
+    ]
+  },
+  { label: 'Aide', items: [{ label: 'Raccourcis clavier', action: 'shortcuts' }] }
+]
+
+const needsSelection = new Set(['cut', 'copy', 'duplicate', 'delete', 'group', 'ungroup', 'front', 'back'])
+new MenuBar($('menubar'), menus, (a) => run(a)(), shortcuts, (a) => {
+  if (a === 'undo') return history.canUndo
+  if (a === 'redo') return history.canRedo
+  if (a === 'ungroup') return canvas.getActiveObject()?.type === 'group'
+  if (a === 'group') return canvas.getActiveObjects().length > 1
+  if (needsSelection.has(a)) return canvas.getActiveObjects().length > 0
+  return true
+})
 document.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((b) => b.addEventListener('click', run(b.dataset.action!)))
 
 shortcuts.on('zoomIn', () => viewport.zoomIn())
@@ -175,9 +303,9 @@ for (const [dir, dx, dy] of [['left', -1, 0], ['right', 1, 0], ['up', 0, -1], ['
   shortcuts.on(`nudge.${dir}`, () => editing.nudge(dx, dy))
   shortcuts.on(`nudge.${dir}.big`, () => editing.nudge(dx * 10, dy * 10))
 }
-shortcuts.on('tool.select', () => setTool('select'))
-shortcuts.on('tool.pen', () => setTool('pen'))
-shortcuts.on('tool.hand', () => setTool('hand'))
+for (const tool of ['select', 'pen', 'highlighter', 'eraser', 'shape', 'text', 'hand'] as const) {
+  shortcuts.on(`tool.${tool}`, () => setTool(tool))
+}
 
 $('key-zoom-in').textContent = prettyCombo(shortcuts.get('zoomIn')[0])
 $('key-zoom-out').textContent = prettyCombo(shortcuts.get('zoomOut')[0])
@@ -213,4 +341,4 @@ const pending = await platform.pendingFiles()
 if (pending.length > 0) await importer.open(pending)
 
 // Accès pour les tests automatisés de bout en bout.
-Object.assign(window, { __feuillet: { editor, importer, exporter, editing, formats: EXPORT_FORMATS } })
+Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, formats: EXPORT_FORMATS } })
