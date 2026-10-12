@@ -17,7 +17,8 @@
     "android:sync": "npm run build:web && cap sync android",
     "android:open": "cap open android",
     "test:e2e": "npm run build && node tests/e2e/fixtures.cjs test-results/fx && node tests/e2e/app.cjs . test-results/fx test-results/out && node tests/e2e/tools.cjs . test-results/tools && node tests/e2e/essentials.cjs . test-results/ess && node tests/e2e/files.cjs . test-results/files",
-    "build:native": "cargo build --release --target wasm32-unknown-unknown --manifest-path native/feuillet-core/Cargo.toml && node -e \"require('fs').copyFileSync('native/feuillet-core/target/wasm32-unknown-unknown/release/feuillet_core.wasm','src/renderer/src/native/feuillet_core.wasm')\""
+    "build:native": "cargo build --release --target wasm32-unknown-unknown --manifest-path native/feuillet-core/Cargo.toml && node -e \"require('fs').copyFileSync('native/feuillet-core/target/wasm32-unknown-unknown/release/feuillet_core.wasm','src/renderer/src/native/feuillet_core.wasm')\"",
+    "pretest:e2e": "node node_modules/electron/install.js"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.3",
