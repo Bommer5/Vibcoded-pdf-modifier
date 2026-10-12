@@ -12,19 +12,39 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist:linux": "electron-vite build && electron-builder --linux",
-    "dist:win": "electron-vite build && electron-builder --win"
+    "dist:win": "electron-vite build && electron-builder --win",
+    "postinstall": "node scripts/copy-pdfjs-assets.mjs",
+    "predev": "node scripts/copy-pdfjs-assets.mjs",
+    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
+    "build:web": "node scripts/copy-pdfjs-assets.mjs && vite build -c vite.web.config.ts",
+    "android:sync": "npm run build:web && cap sync android",
+    "android:open": "cap open android",
+    "test:e2e": "npm run build && node tests/e2e/fixtures.cjs test-results/fx && node tests/e2e/app.cjs . test-results/fx test-results/out"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
     "@types/node": "^22.20.5",
     "electron": "^44.7.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "playwright": "^1.56.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.7"
   },
   "dependencies": {
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.4",
+    "@capacitor/share": "^8.0.3",
+    "ag-psd": "^31.0.3",
+    "docx": "^9.10.0",
     "fabric": "^7.4.0",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.4.299"
+    "pdfjs-dist": "^6.4.299",
+    "svg2pdf.js": "^2.8.1",
+    "utif2": "^4.1.0"
   }
 }

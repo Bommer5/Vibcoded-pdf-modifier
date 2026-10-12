@@ -2,9 +2,10 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
     />
     <title>Feuillet</title>
   </head>
@@ -12,25 +13,80 @@
     <div id="app">
       <header class="topbar">
         <span class="brand">Feuillet</span>
-        <button data-action="new-a4" title="Nouvelle page A4 (Ctrl+N)">Nouveau A4</button>
-        <button data-action="undo" title="Annuler (Ctrl+Z)">↶</button>
-        <button data-action="redo" title="Rétablir (Ctrl+Maj+Z / Ctrl+Y)">↷</button>
+        <button data-action="new" title="Nouveau document A4 (Ctrl+N)">Nouveau</button>
+        <button data-action="open" title="Ouvrir (Ctrl+O)">Ouvrir</button>
+        <button data-action="insert" title="Insérer un fichier : image, PDF, document… (Ctrl+I)">Insérer</button>
+        <button data-action="save" title="Enregistrer le projet (Ctrl+S)">Enregistrer</button>
+        <button data-action="export" title="Exporter : PDF, images, Word… (Ctrl+E)">Exporter</button>
+        <span class="sep"></span>
+        <button data-action="undo" title="Annuler (Ctrl+Z)" aria-label="Annuler">↶</button>
+        <button data-action="redo" title="Rétablir (Ctrl+Maj+Z / Ctrl+Y)" aria-label="Rétablir">↷</button>
+        <span class="sep"></span>
+        <button data-action="add-page" title="Ajouter une page A4 après la page actuelle">+ Page</button>
         <span class="spacer"></span>
         <span id="pointer-info" class="muted"></span>
-        <span id="zoom-label" class="muted">100 %</span>
+        <button data-action="zoom-out" title="Zoom arrière" aria-label="Zoom arrière">−</button>
+        <button data-action="zoom-fit" id="zoom-label" class="zoom-label" title="Ajuster à la page (Ctrl+0)">100 %</button>
+        <button data-action="zoom-in" title="Zoom avant" aria-label="Zoom avant">+</button>
       </header>
       <aside class="toolbar" id="toolbar">
-        <button data-tool="select" title="Sélection (V)">⬚</button>
-        <button data-tool="pen" title="Stylo (P)">✎</button>
-        <button data-tool="hand" title="Main (H, ou maintenir Espace)">✋</button>
+        <button data-tool="select" title="Sélection (V)" aria-label="Sélection">⬚</button>
+        <button data-tool="pen" title="Stylo (P)" aria-label="Stylo">✎</button>
+        <button data-tool="hand" title="Main (H, ou maintenir Espace)" aria-label="Main">✋</button>
       </aside>
       <main class="workspace" id="workspace">
         <canvas id="stage"></canvas>
+        <div class="selection-bar" id="selection-bar" hidden>
+          <button data-action="copy" title="Copier (Ctrl+C)">Copier</button>
+          <button data-action="cut" title="Couper (Ctrl+X)">Couper</button>
+          <button data-action="paste" title="Coller (Ctrl+V)">Coller</button>
+          <button data-action="duplicate" title="Dupliquer (Ctrl+D)">Dupliquer</button>
+          <span class="sep"></span>
+          <button data-action="group" title="Grouper (Ctrl+G)">Grouper</button>
+          <button data-action="ungroup" title="Dégrouper (Ctrl+Maj+G)">Dégrouper</button>
+          <button data-action="front" title="Premier plan (Ctrl+Maj+])">Devant</button>
+          <button data-action="back" title="Arrière-plan (Ctrl+Maj+[)">Derrière</button>
+          <span class="sep"></span>
+          <button data-action="delete" class="danger" title="Supprimer (Suppr)">Supprimer</button>
+        </div>
+        <div class="drop-overlay" id="drop-overlay" hidden>Déposez vos fichiers ici</div>
       </main>
       <footer class="statusbar">
-        <span>Zoom : <kbd id="key-zoom-in"></kbd> / <kbd id="key-zoom-out"></kbd> (sur le pointeur) · Ctrl+molette · Espace = déplacer</span>
+        <span>Zoom : <kbd id="key-zoom-in"></kbd> / <kbd id="key-zoom-out"></kbd> (sur le pointeur) · Ctrl+molette · Espace = déplacer · Glissez des fichiers pour les insérer</span>
       </footer>
     </div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <dialog id="export-dialog" class="dialog">
+      <form method="dialog">
+        <h2>Exporter</h2>
+        <label>Format
+          <select name="format" id="export-format"></select>
+        </label>
+        <label>Pages
+          <select name="pages" id="export-pages">
+            <option value="all">Toutes les pages</option>
+            <option value="current">Page actuelle</option>
+            <option value="range">Plage…</option>
+          </select>
+        </label>
+        <label id="export-range-row" hidden>Plage (ex. 1-3, 5)
+          <input name="range" id="export-range" placeholder="1-3, 5" />
+        </label>
+        <label id="export-dpi-row">Résolution
+          <select name="dpi" id="export-dpi">
+            <option value="96">96 ppp (écran)</option>
+            <option value="150" selected>150 ppp</option>
+            <option value="300">300 ppp (impression)</option>
+            <option value="600">600 ppp</option>
+          </select>
+        </label>
+        <p class="muted small" id="export-hint"></p>
+        <menu>
+          <button value="cancel" formnovalidate>Annuler</button>
+          <button value="ok" class="primary" id="export-confirm">Exporter</button>
+        </menu>
+      </form>
+    </dialog>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

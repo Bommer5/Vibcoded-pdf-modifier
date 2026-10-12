@@ -1,4 +1,4 @@
-import { Point, type Canvas } from 'fabric'
+import { Point, util, type Canvas } from 'fabric'
 
 const MIN_ZOOM = 0.05
 const MAX_ZOOM = 32
@@ -14,6 +14,9 @@ export class Viewport {
   private spaceHeld = false
   private handTool = false
   private drag: { id: number; last: Point } | null = null
+  /** Doigts posés (écrans tactiles) : deux doigts = pincer pour zoomer + déplacer. */
+  private touches = new Map<number, Point>()
+  private pinch: { distance: number; center: Point } | null = null
 
   constructor(
     private canvas: Canvas,
@@ -30,6 +33,11 @@ export class Viewport {
     window.addEventListener('keydown', (e) => this.onSpace(e, true))
     window.addEventListener('keyup', (e) => this.onSpace(e, false))
     window.addEventListener('blur', () => this.setSpace(false))
+  }
+
+  /** Position du pointeur en coordonnées document, s'il est au-dessus du canevas. */
+  pointerScene(): Point | null {
+    return this.pointer ? this.pointer.transform(util.invertTransform(this.canvas.viewportTransform)) : null
   }
 
   get zoom(): number {
@@ -96,6 +104,14 @@ export class Viewport {
   }
 
   private onPointerDown(e: PointerEvent): void {
+    if (e.pointerType === 'touch') {
+      this.touches.set(e.pointerId, this.local(e))
+      if (this.touches.size === 2) {
+        e.stopPropagation()
+        this.pinch = this.pinchState()
+        return
+      }
+    }
     const middle = e.button === 1
     if (!this.panning && !middle) return
     e.preventDefault()
@@ -105,7 +121,23 @@ export class Viewport {
     this.host.classList.add('dragging')
   }
 
+  private pinchState(): { distance: number; center: Point } {
+    const [a, b] = [...this.touches.values()]
+    return { distance: a.distanceFrom(b), center: a.midPointFrom(b) }
+  }
+
   private onPointerMove(e: PointerEvent): void {
+    if (e.pointerType === 'touch' && this.touches.has(e.pointerId)) {
+      this.touches.set(e.pointerId, this.local(e))
+      if (this.pinch && this.touches.size === 2) {
+        e.stopPropagation()
+        const next = this.pinchState()
+        this.canvas.relativePan(next.center.subtract(this.pinch.center))
+        this.zoomAt(this.zoom * (next.distance / this.pinch.distance), next.center)
+        this.pinch = next
+        return
+      }
+    }
     if (!this.drag || e.pointerId !== this.drag.id) return
     e.stopPropagation()
     const now = new Point(e.clientX, e.clientY)
@@ -114,6 +146,11 @@ export class Viewport {
   }
 
   private endDrag(e: PointerEvent): void {
+    if (this.touches.delete(e.pointerId) && this.pinch) {
+      e.stopPropagation()
+      if (this.touches.size < 2) this.pinch = null
+      return
+    }
     if (!this.drag || e.pointerId !== this.drag.id) return
     e.stopPropagation()
     this.host.releasePointerCapture(e.pointerId)

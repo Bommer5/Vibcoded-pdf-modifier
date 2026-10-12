@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Feuillet</string>
+    <string name="title_activity_main">Feuillet</string>
+    <string name="package_name">app.feuillet.editor</string>
+    <string name="custom_url_scheme">app.feuillet.editor</string>
+</resources>

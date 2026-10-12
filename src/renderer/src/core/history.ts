@@ -2,15 +2,17 @@ import type { Canvas } from 'fabric'
 
 /**
  * Historique annuler/rétablir par instantanés JSON du canevas.
- * Simple et fiable ; sera remplacé par des commandes différentielles
- * quand les documents deviendront volumineux.
+ * Les opérations composées (coller plusieurs objets, importer un PDF…)
+ * passent par `transaction()` pour ne former qu'une seule étape.
  */
 export class History {
   private undoStack: string[] = []
   private redoStack: string[] = []
   private current = ''
-  private restoring = false
+  private suspended = 0
   private readonly limit = 100
+  /** Les restaurations s'enchaînent : Ctrl+Z maintenu ne mélange jamais deux états. */
+  private queue: Promise<void> = Promise.resolve()
 
   constructor(
     private canvas: Canvas,
@@ -21,6 +23,7 @@ export class History {
     canvas.on('object:added', record)
     canvas.on('object:removed', record)
     canvas.on('object:modified', record)
+    canvas.on('path:created', record)
   }
 
   get canUndo(): boolean {
@@ -31,9 +34,20 @@ export class History {
     return this.redoStack.length > 0
   }
 
+  /** Exécute `fn` puis enregistre une seule étape d'historique. */
+  async transaction<T>(fn: () => T | Promise<T>): Promise<T> {
+    this.suspended++
+    try {
+      return await fn()
+    } finally {
+      this.suspended--
+      this.record()
+    }
+  }
+
   /** Enregistre l'état courant comme nouvelle étape. */
   record(): void {
-    if (this.restoring) return
+    if (this.suspended > 0) return
     const next = this.serialize()
     if (next === this.current) return
     this.undoStack.push(this.current)
@@ -51,32 +65,47 @@ export class History {
     this.onChange()
   }
 
-  async undo(): Promise<void> {
-    const prev = this.undoStack.pop()
-    if (prev === undefined) return
-    this.redoStack.push(this.current)
-    await this.restore(prev)
+  /** Attend la fin des annulations / rétablissements en cours. */
+  idle(): Promise<void> {
+    return this.queue
   }
 
-  async redo(): Promise<void> {
-    const next = this.redoStack.pop()
-    if (next === undefined) return
-    this.undoStack.push(this.current)
-    await this.restore(next)
+  undo(): Promise<void> {
+    return this.enqueue(() => {
+      const prev = this.undoStack.pop()
+      if (prev === undefined) return
+      this.redoStack.push(this.current)
+      return this.restore(prev)
+    })
+  }
+
+  redo(): Promise<void> {
+    return this.enqueue(() => {
+      const next = this.redoStack.pop()
+      if (next === undefined) return
+      this.undoStack.push(this.current)
+      return this.restore(next)
+    })
+  }
+
+  private enqueue(fn: () => Promise<void> | void): Promise<void> {
+    this.queue = this.queue.then(fn).catch((e) => console.error(e))
+    return this.queue
   }
 
   private serialize(): string {
-    return JSON.stringify(this.canvas.toObject(['selectable', 'evented', 'excludeFromExport', 'pageId']))
+    return JSON.stringify(this.canvas.toObject())
   }
 
   private async restore(state: string): Promise<void> {
-    this.restoring = true
+    this.suspended++
     try {
+      this.canvas.discardActiveObject()
       await this.canvas.loadFromJSON(state)
       this.canvas.requestRenderAll()
       this.current = state
     } finally {
-      this.restoring = false
+      this.suspended--
     }
     this.onChange()
   }

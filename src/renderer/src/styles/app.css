@@ -33,3 +33,48 @@ button:hover { background: #ffffff12; }
 .toolbar button { width: 36px; height: 36px; font-size: 16px; padding: 0; }
 .toolbar button.active { background: var(--accent); color: #fff; }
 kbd { background: #ffffff14; border-radius: 4px; padding: 0 4px; font-family: inherit; }
+.sep { width: 1px; height: 20px; background: var(--panel-border); margin: 0 4px; }
+.zoom-label { min-width: 64px; color: var(--muted); }
+.selection-bar {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
+  box-shadow: 0 6px 20px #0006; z-index: 5;
+}
+.selection-bar[hidden], .drop-overlay[hidden] { display: none; }
+button.danger:hover { background: #e5484d33; color: #ff8b8f; }
+button.primary { background: var(--accent); color: #fff; }
+button.primary:hover { background: #3f7cf0; }
+.drop-overlay {
+  position: absolute; inset: 12px; display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--accent); border-radius: 12px; background: #4f8cff1f;
+  font-size: 18px; pointer-events: none; z-index: 6;
+}
+.toasts { position: fixed; right: 16px; bottom: 40px; display: flex; flex-direction: column; gap: 8px; z-index: 20; }
+.toast {
+  max-width: 420px; padding: 10px 14px; border-radius: 8px; background: var(--panel);
+  border: 1px solid var(--panel-border); box-shadow: 0 6px 20px #0006; user-select: text;
+  animation: toast-in 0.15s ease-out;
+}
+.toast.error { border-color: #e5484d; }
+.toast.success { border-color: #30a46c; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+.dialog {
+  background: var(--panel); color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 20px; width: min(420px, calc(100vw - 32px));
+}
+.dialog::backdrop { background: #0008; }
+.dialog h2 { margin: 0 0 14px; font-size: 16px; }
+.dialog label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; color: var(--muted); }
+.dialog label[hidden] { display: none; }
+.dialog select, .dialog input {
+  background: var(--bg); color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 6px 8px; font: inherit;
+}
+.dialog menu { display: flex; justify-content: flex-end; gap: 8px; margin: 16px 0 0; padding: 0; }
+.small { font-size: 12px; }
+@media (max-width: 700px) {
+  .topbar { overflow-x: auto; }
+  .statusbar { display: none; }
+  #app { grid-template-rows: 44px 1fr 0; }
+}

@@ -9,7 +9,7 @@ Tout est faisable. Choix techniques :
 
 | Besoin | Solution |
 |---|---|
-| Windows + Linux (+ macOS gratuit) | **Electron** + TypeScript, installeurs via electron-builder (NSIS, AppImage, .deb) |
+| Windows + Linux (+ macOS gratuit) + **Android** (Capacitor) | **Electron** + TypeScript, installeurs via electron-builder (NSIS, AppImage, .deb) |
 | Toutes les tablettes graphiques | **Pointer Events** de Chromium : pression, inclinaison, gomme du stylet. Fonctionne avec Wacom, XP-Pen, Huion, Gaomon, Windows Ink, libinput/X11/Wayland, sans pilote spécifique |
 | Canevas, sélection, déplacement, calques | **Fabric.js** (objets, poignées, sélection en pointillés, groupes) |
 | Lire / afficher les PDF | **pdf.js** (moteur de Firefox) |
@@ -25,7 +25,7 @@ Limites honnêtes :
   une reconstruction parfaite de la mise en page.
 - Formats propriétaires (.pages, .indd) : non prévus.
 
-## Phase 0 — Socle ✅ (ce commit)
+## Phase 0 — Socle ✅
 - [x] Projet Electron + Vite + TypeScript, build Windows/Linux configuré
 - [x] Fenêtre, barre d'outils, barre d'état, thème sombre
 - [x] Page A4 vierge, ajout de pages
@@ -36,10 +36,12 @@ Limites honnêtes :
 - [x] Dialogues ouvrir / enregistrer sécurisés (IPC, sandbox)
 
 ## Phase 1 — Édition de base
-- [ ] 1.1 Sélection : cadre pointillé, poignées, rotation, multi-sélection (Maj), sélection au lasso
-- [ ] 1.2 Déplacement au clavier (flèches, Maj = 10 px), copier/coller/dupliquer (Ctrl+C/V/D)
-- [ ] 1.3 Supprimer, grouper / dégrouper (Ctrl+G / Ctrl+Maj+G)
-- [ ] 1.4 Ordre : premier plan / arrière-plan
+- [x] 1.1 Sélection : cadre pointillé (prend tout ce qu'il touche), poignées, rotation, multi-sélection (Maj)
+- [ ] 1.1b Sélection au lasso
+- [x] 1.2 Flèches (Maj = ×10), copier/couper/coller **sous le pointeur**, dupliquer (Ctrl+C/X/V/D), tout sélectionner
+- [x] 1.3 Supprimer, grouper / dégrouper (Ctrl+G / Ctrl+Maj+G), barre d'actions de sélection
+- [x] 1.4 Ordre : premier plan / arrière-plan
+- [x] 1.4b Coller des images / du texte venant d'autres applications
 - [ ] 1.5 Alignement et distribution, repères magnétiques (snapping)
 - [ ] 1.6 Historique robuste (commandes différentielles plutôt qu'instantanés)
 
@@ -66,29 +68,44 @@ Limites honnêtes :
 - [ ] 4.3 Calque « Document » (PDF d'origine) verrouillé par défaut
 - [ ] 4.4 Déplacer la sélection vers un autre calque
 
-## Phase 5 — Import
-- [ ] 5.1 Ouvrir un PDF (rendu pdf.js, chaque page = page éditable)
-- [ ] 5.2 Importer des images (fichier, glisser-déposer, coller depuis le presse-papiers)
-- [ ] 5.3 Insérer un PDF dans une page existante, ou ses pages à la suite
-- [ ] 5.4 Ouvrir un .docx (texte et images)
-- [ ] 5.5 Ouvrir un SVG en objets vectoriels
-- [ ] 5.6 Glisser un fichier sur la fenêtre / « Ouvrir avec » depuis l'explorateur
+## Phase 5 — Import ✅ (voir docs/RESEARCH.md)
+- [x] 5.1 PDF (hors ligne, pages tournées, formulaires XFA), .ai
+- [x] 5.2 Images : PNG, JPEG, GIF, WebP, AVIF, BMP, ICO, TIFF multipage, PSD ; glisser-déposer, coller
+- [x] 5.3 Insérer un PDF / document : pages ajoutées après la page actuelle
+- [x] 5.4 Bureautique via LibreOffice : Word, Excel, PowerPoint, OpenDocument, RTF, Pages, Keynote, Numbers, Visio, EPUB… (repli texte pour .docx)
+- [x] 5.5 SVG en objets vectoriels
+- [x] 5.6 Glisser-déposer, « Ouvrir avec » / double-clic (instance unique)
+- [x] 5.7 Carnets Xournal / Xournal++ (.xoj, .xopp) avec fond PDF et papiers
+- [x] 5.8 Texte brut (.txt, .md, .csv…) : mis en page sur des feuilles A4
+- [ ] 5.9 HEIC, mise en page mobile du .docx sans LibreOffice
 
 ## Phase 6 — Pages et documents
 - [ ] 6.1 Nouveau document : A4, A3, A5, Lettre, portrait/paysage, taille libre
 - [ ] 6.2 Panneau Miniatures : réordonner, dupliquer, supprimer, pivoter des pages
 - [ ] 6.3 Fonds de page : vierge, lignes, petits carreaux, pointillés
 - [ ] 6.4 **Outil Cadre** : tracer un cadre sur la zone de travail → l'exporter en PDF/image
-- [ ] 6.5 Format projet natif (.feuillet) : tout reste modifiable (calques, objets)
+- [x] 6.5 Format projet natif (.feuillet) : tout reste modifiable (calques, objets)
 - [ ] 6.6 Sauvegarde automatique et récupération après plantage
 
 ## Phase 7 — Export
-- [ ] 7.1 PDF : PDF d'origine conservé + annotations vectorielles par-dessus
-- [ ] 7.2 PNG / JPG / WebP (page courante, sélection, toutes les pages, DPI réglable)
-- [ ] 7.3 SVG
-- [ ] 7.4 Word (.docx)
+- [x] 7.1 PDF : PDF d'origine conservé + ajouts vectoriels (pages tournées gérées)
+- [x] 7.2 PNG / JPEG / WebP / TIFF (page actuelle, toutes, plage « 1-3, 5 », 96 à 600 ppp)
+- [x] 7.3 SVG
+- [x] 7.4 Word .docx (mise en page identique, ou texte modifiable via LibreOffice), ODT, ODG, RTF, DOC
+- [ ] 7.4b Polices TrueType intégrées au PDF (Unicode complet)
 - [ ] 7.5 Impression
 - [ ] 7.6 Options : plage de pages, compression, aplatir ou non
+
+## Phase 7bis — Mobile
+- [x] Couche plateforme (PC / Android / navigateur), build web, projet Android Capacitor
+- [x] Zoom à deux doigts, partage natif des exports
+- [ ] Interface adaptée au téléphone (barres repliables, gros boutons)
+- [ ] Conversion bureautique sur mobile (service optionnel)
+- [ ] iOS (même code ; nécessite un Mac + compte Apple)
+
+## Phase 3bis — Modifier le texte d'origine des PDF
+- [ ] Clic sur un texte du PDF → zone modifiable, original masqué à l'export
+- [ ] Mode natif PDFium (WASM) quand la police le permet
 
 ## Phase 8 — Confort et finition « produit »
 - [ ] 8.1 Préférences : raccourcis entièrement personnalisables (dont touches de zoom), thème clair/sombre, langue
@@ -104,6 +121,6 @@ Limites honnêtes :
 - [ ] 9.1 Icône, nom, identité visuelle
 - [ ] 9.2 Installeurs signés (certificat Windows), AppImage + .deb
 - [ ] 9.3 Mises à jour automatiques (electron-updater)
-- [ ] 9.4 Tests automatisés (unitaires + bout-en-bout Playwright) et CI GitHub Actions
+- [x] 9.4 Tests de bout en bout (Playwright + Electron, 26 vérifications) et CI GitHub Actions (PC + APK Android)
 - [ ] 9.5 Licence : vérifier les dépendances (toutes MIT/Apache ici), CGU, licence logicielle
 - [ ] 9.6 Rapports de plantage (opt-in), page de site, documentation utilisateur
