@@ -293,7 +293,11 @@ export interface FontGuess {
 /** Polices proposées : les plus courantes (livrées avec l'application en équivalents libres)… */
 const BUNDLED = ['Arial', 'Times New Roman', 'Calibri', 'Cambria', 'Courier New']
 /** …et celles de l'ordinateur, si elles y sont (Windows, macOS, Linux). */
-const SYSTEM = ['Georgia', 'Verdana', 'Tahoma', 'Segoe UI', 'Garamond', 'Book Antiqua', 'Century Gothic', 'DejaVu Serif', 'DejaVu Sans', 'Noto Serif', 'Noto Sans', 'Helvetica Neue']
+const SYSTEM = [
+  'Georgia', 'Verdana', 'Tahoma', 'Segoe UI', 'Garamond', 'Book Antiqua', 'Century Gothic', 'DejaVu Serif', 'DejaVu Sans', 'Noto Serif', 'Noto Sans', 'Helvetica Neue',
+  // Polices des sites, formulaires et documents générés (et celle d'Android : Roboto).
+  'Roboto', 'Inter', 'Open Sans', 'Lato', 'Source Sans Pro', 'Source Sans 3', 'Fira Sans', 'Montserrat', 'Poppins', 'Ubuntu', 'PT Sans', 'Trebuchet MS'
+]
 
 /** Police réellement installée (et pas seulement un nom de secours) ? */
 function installed(family: string): boolean {

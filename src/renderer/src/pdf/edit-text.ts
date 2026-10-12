@@ -290,6 +290,13 @@ function isInstalled(family: string): boolean {
 }
 
 /** Nom de police PDF (« ABCDEF+Calibri-Bold », « TimesNewRomanPSMT »…) → police affichable la plus proche. */
+/** La police du PDF est-elle installée sur l'appareil (sous son nom) ? */
+function isInstalledName(f: PdfCharFont | undefined): boolean {
+  if (!f) return false
+  const base = f.name.replace(/^[A-Z]{6}\+/, '').replace(/[-,].*$/, '').replace(/(PS)?MT$/, '')
+  return [f.family, base, base.replace(/([a-z])([A-Z])/g, '$1 $2')].some((n) => n && isInstalled(n))
+}
+
 export function closestFont(pdfName: string, family = ''): string {
   const base = pdfName.replace(/^[A-Z]{6}\+/, '').replace(/[-,].*$/, '').replace(/(PS)?MT$/, '')
   const spaced = base.replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -345,14 +352,53 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
       m.get(u)!.push(((b.x - a.x) / a.size) * 1000)
     }
   }
-  const keys = [...new Set(lines.flatMap((l) => l.chars.map((c) => c.f)).filter((f) => f >= 0))]
+  // Polices sans nom découpées en morceaux (Chrome met quelques lettres dans chacune) : celles
+  // qui se suivent dans un même mot vont ensemble (le romain avec le romain, le gras avec le gras).
+  const unnamed = (k: number): boolean => k >= 0 && !fonts[k]?.name && !fonts[k]?.family
+  const group = new Map<number, number>()
+  const root = (k: number): number => {
+    while (group.has(k) && group.get(k) !== k) k = group.get(k)!
+    return k
+  }
+  for (let i = 1; i < chars.length; i++) {
+    const a = chars[i - 1]
+    const b = chars[i]
+    if (isSpace(a) || isSpace(b) || a.f === b.f || !unnamed(a.f) || !unnamed(b.f) || Math.abs(a.y - b.y) > a.size * 0.3) continue
+    const ra = root(a.f)
+    const rb = root(b.f)
+    group.set(a.f, ra)
+    if (ra !== rb) group.set(rb, ra)
+  }
+  // Morceau qui ne contient que des espaces : il va avec toutes les polices sans nom.
+  const spaceOnly = new Set(fonts.map((_, j) => j).filter((j) => unnamed(j) && chars.some((c) => c.f === j) && chars.every((c) => c.f !== j || isSpace(c))))
+  const siblings = (k: number): number[] =>
+    unnamed(k) ? fonts.map((_, j) => j).filter((j) => j !== k && unnamed(j) && (root(j) === root(k) || spaceOnly.has(j))) : []
+  const inPara = [...new Set(lines.flatMap((l) => l.chars.map((c) => c.f)).filter((f) => f >= 0))]
+  const keys = [...new Set([...inPara, ...inPara.flatMap(siblings)])].filter((k) => used.has(k))
   const faces = new Map<number, EmbeddedFace | null>()
   await Promise.all(keys.map(async (k) => faces.set(k, fonts[k].sample < 0 || page.bg.kind !== 'pdf' ? null : await embeddedFace(bg.assetId, bg.index, fonts[k], used.get(k) ?? [], advances.get(k)))))
+  // Police d'origine illisible et absente de l'appareil : la plus ressemblante, d'après la forme
+  // des mots du paragraphe (comme pour un scan), plutôt qu'Arial par défaut.
+  const lookalike = new Map<number, string>()
+  for (const k of inPara) {
+    const f = fonts[k]
+    if (lookalike.has(k) || faces.get(k) || siblings(k).some((j) => faces.get(j)) || fromOcr || isInstalledName(f)) continue
+    // Police en morceaux : on compare les mots entiers (tous les morceaux du groupe).
+    const family = new Set([k, ...siblings(k)])
+    const own = lines.flatMap((l) => l.chars.filter((c) => family.has(c.f) || isSpace(c)))
+    if (own.filter((c) => !isSpace(c)).length < 3) continue
+    const guess = await matchFont(page, own)
+    for (const j of family) {
+      lookalike.set(j, guess.family)
+      // Sans nom, la graisse et le style ne sont connus que par la forme des lettres.
+      if (unnamed(j)) fonts[j] = { ...fonts[j], bold: fonts[j].bold || guess.bold, italic: fonts[j].italic || guess.italic }
+    }
+  }
   const familyOf = (k: number): string => {
     const f = fonts[k]
-    const fallback = closestFont(f?.name ?? '', f?.family ?? '')
-    const face = faces.get(k)
-    return face ? `'${face.family}', '${fallback}'` : fallback
+    const fallback = lookalike.get(k) ?? closestFont(f?.name ?? '', f?.family ?? '')
+    const own = [faces.get(k), ...siblings(k).map((j) => faces.get(j))].filter((x): x is EmbeddedFace => !!x)
+    return own.length ? [...own.map((x) => `'${x.family}'`), `'${fallback}'`].join(', ') : fallback
   }
   for (const face of faces.values()) if (face) cache.clearFontCache(face.family)
 
@@ -410,7 +456,7 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
         continue
       }
       const c = ink[k++]
-      if (c && (c.f !== main || Math.abs(c.size - size) > 0.05 || c.color !== color)) {
+      if (c && ((c.f !== main && !siblings(main).includes(c.f)) || Math.abs(c.size - size) > 0.05 || c.color !== color)) {
         const f = fonts[c.f]
         box.setSelectionStyles(
           { fontFamily: familyOf(c.f), fontWeight: f?.bold ? 'bold' : 'normal', fontStyle: f?.italic ? 'italic' : 'normal', fontSize: c.size, fill: c.color },

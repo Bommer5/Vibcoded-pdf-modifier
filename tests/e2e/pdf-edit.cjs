@@ -178,6 +178,44 @@ function inkDiff(a, b) {
   const undone = await win.evaluate(() => window.__feuillet.editor.doc.pages[0].shifts ?? [])
   check('undo puts the next paragraph back', undone.every((s) => !s.dy), JSON.stringify(undone))
 
+  // PDF écrits par Chrome (formulaires, pages web) : texte en « px » dans une page réduite à
+  // 75 %, polices Type 3 découpées en morceaux sans nom (Inter), ou CID TrueType (DejaVu).
+  for (const [fixture, label] of [['chrome-type3.pdf', 'Chrome, Type 3'], ['chrome-cid.pdf', 'Chrome, CID TrueType']]) {
+    await win.evaluate(() => window.feuillet.setDirty(false))
+    const data = fs.readFileSync(path.join(root, 'tests/fixtures', fixture)).toString('base64')
+    await win.evaluate((b) => window.__feuillet.importer.open([{ name: 'form.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]), data)
+    await win.waitForTimeout(600)
+    for (const [word, size, bold] of [['Suivez', 11, false], ['Affections', 16, true]]) {
+      const at = await win.evaluate(async (word) => {
+        const { editor, pdfEngine } = window.__feuillet
+        const p = editor.doc.pages[0]
+        const r = await pdfEngine.chars(p.bg.assetId, 0)
+        const c = r.chars[r.chars.map((x) => x.c).join('').indexOf(word)]
+        editor.viewport.showRect(editor.doc.box(p))
+        return [c.x + 2, c.y - c.size * 0.3]
+      }, word)
+      await win.evaluate(() => window.__feuillet.tools.set('edittext'))
+      await clickAt(at[0], at[1])
+      await win.waitForFunction(() => window.__feuillet.editor.canvas.getActiveObject()?.text !== undefined, null, { timeout: 8000 }).catch(() => {})
+      const o = await win.evaluate(() => {
+        const o = window.__feuillet.editor.canvas.getActiveObject()
+        if (!o) return null
+        const ctx = document.createElement('canvas').getContext('2d')
+        ctx.font = `bold ${o.fontSize}px ${o.fontFamily}`
+        const boldW = ctx.measureText(o._textLines[0].join('')).width
+        ctx.font = `${o.fontWeight} ${o.fontSize}px ${o.fontFamily}`
+        const w = ctx.measureText(o._textLines[0].join('')).width
+        return { size: o.fontSize, cs: o.charSpacing, lh: o.lineHeight, lines: o._textLines.length, family: o.fontFamily, weight: o.fontWeight, heavy: Math.abs(w - boldW) < 0.5 }
+      })
+      check(`${label} : « ${word} » à sa vraie taille (${size} pt), lettres non tassées`, o && Math.abs(o.size - size) < 0.3 && Math.abs(o.cs) < 25, JSON.stringify(o))
+      if (word === 'Suivez') check(`${label} : interligne d'origine, mêmes lignes`, o && o.lines === 2 && o.lh > 0.95 && o.lh < 1.3, JSON.stringify(o))
+      if (bold) check(`${label} : titre en gras`, o && (o.weight === 'bold' || o.heavy || /Bold/.test(o.family)), JSON.stringify(o))
+      await win.keyboard.press('Escape')
+      await win.evaluate(() => window.__feuillet.editor.canvas.discardActiveObject())
+      await win.waitForTimeout(200)
+    }
+  }
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()

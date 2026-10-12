@@ -19,6 +19,9 @@ export class Viewport {
   /** Doigts posés (écrans tactiles) : deux doigts = pincer pour zoomer + déplacer. */
   private touches = new Map<number, Point>()
   private pinch: { distance: number; center: Point } | null = null
+  /** Derniers mouvements (pour l'élan au lâcher) et animation d'élan en cours. */
+  private samples: { t: number; x: number; y: number }[] = []
+  private glide = 0
 
   constructor(
     private canvas: Canvas,
@@ -130,6 +133,7 @@ export class Viewport {
 
   private onWheel(e: WheelEvent): void {
     e.preventDefault()
+    this.stopGlide()
     // Unités : pixels (pavé tactile), lignes (certaines souris sous Linux / Firefox), pages.
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.canvas.getHeight() : 1
     const dx = e.deltaX * unit
@@ -181,6 +185,8 @@ export class Viewport {
   }
 
   private onPointerDown(e: PointerEvent): void {
+    this.stopGlide()
+    this.samples = []
     if (e.pointerType === 'touch') {
       this.touches.set(e.pointerId, this.local(e))
       if (this.touches.size === 2) {
@@ -212,6 +218,7 @@ export class Viewport {
         const next = this.pinchState()
         const d = next.center.subtract(this.pinch.center)
         this.panBy(d.x, d.y)
+        this.track(d.x, d.y)
         this.zoomAt(this.zoom * (next.distance / this.pinch.distance), next.center)
         this.pinch = next
         return
@@ -222,13 +229,17 @@ export class Viewport {
     const now = new Point(e.clientX, e.clientY)
     const d = now.subtract(this.drag.last)
     this.panBy(d.x, d.y)
+    this.track(d.x, d.y)
     this.drag.last = now
   }
 
   private endDrag(e: PointerEvent): void {
     if (this.touches.delete(e.pointerId) && this.pinch) {
       e.stopPropagation()
-      if (this.touches.size < 2) this.pinch = null
+      if (this.touches.size < 2) {
+        this.pinch = null
+        this.startGlide()
+      }
       return
     }
     if (!this.drag || e.pointerId !== this.drag.id) return
@@ -236,6 +247,59 @@ export class Viewport {
     this.host.releasePointerCapture(e.pointerId)
     this.drag = null
     this.host.classList.remove('dragging')
+    if (e.type === 'pointerup') this.startGlide()
+  }
+
+  /** Mouvement de la main enregistré (on garde les 100 dernières millisecondes). */
+  private track(dx: number, dy: number): void {
+    const t = performance.now()
+    this.samples.push({ t, x: dx, y: dy })
+    while (this.samples.length && t - this.samples[0].t > 100) this.samples.shift()
+  }
+
+  /**
+   * Élan : au lâcher, la vue continue sur sa lancée et ralentit doucement (comme sur un
+   * téléphone), au lieu de s'arrêter net. Un nouveau contact ou la molette l'arrête.
+   */
+  private startGlide(): void {
+    const now = performance.now()
+    const recent = this.samples.filter((s) => now - s.t <= 100)
+    this.samples = []
+    // Main immobile avant le lâcher : pas d'élan.
+    if (recent.length < 2 || now - recent[recent.length - 1].t > 50) return
+    const span = Math.max(16, now - recent[0].t)
+    let vx = recent.reduce((a, s) => a + s.x, 0) / span // pixels par milliseconde
+    let vy = recent.reduce((a, s) => a + s.y, 0) / span
+    const max = 6
+    const speed = Math.hypot(vx, vy)
+    if (speed < 0.15) return
+    if (speed > max) {
+      vx *= max / speed
+      vy *= max / speed
+    }
+    let last = now
+    const step = (t: number): void => {
+      const dt = Math.min(48, t - last)
+      last = t
+      const before = [this.canvas.viewportTransform[4], this.canvas.viewportTransform[5]]
+      this.panBy(vx * dt, vy * dt)
+      const v = this.canvas.viewportTransform
+      // Freinage (≈ 0,3 s pour perdre l'essentiel de la vitesse) ; bord du document : arrêt.
+      const k = Math.pow(0.996, dt)
+      vx = v[4] === before[0] ? 0 : vx * k
+      vy = v[5] === before[1] ? 0 : vy * k
+      if (Math.hypot(vx, vy) < 0.02) {
+        this.glide = 0
+        return
+      }
+      this.glide = requestAnimationFrame(step)
+    }
+    this.glide = requestAnimationFrame(step)
+  }
+
+  stopGlide(): void {
+    if (this.glide) cancelAnimationFrame(this.glide)
+    this.glide = 0
   }
 
   private onSpace(e: KeyboardEvent, down: boolean): void {

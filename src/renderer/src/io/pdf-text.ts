@@ -263,11 +263,37 @@ export async function drawTextObject(
     const fk = (font as unknown as { embedder?: { font?: { hasGlyphForCodePoint?(c: number): boolean } } }).embedder?.font
     return !fk?.hasGlyphForCodePoint || [...text].every((ch) => /\s/.test(ch) || fk.hasGlyphForCodePoint!(ch.codePointAt(0)!))
   }
-  const embedded: PDFFont[] = []
+  // Sinon, lettre par lettre (police du PDF découpée en morceaux, comme Chrome les écrit) :
+  // chaque caractère prend la première police qui l'a, les morceaux se suivent sur la ligne.
+  const pieces: { run: Run; text: string; font: PDFFont; x: number; width?: number }[] = []
   for (const r of runs) {
-    const found = (await fonts.candidates(r.family, r.bold, r.italic)).find((f) => hasAll(f, r.text))
-    if (!found) return false
-    embedded.push(found)
+    const list = await fonts.candidates(r.family, r.bold, r.italic)
+    const found = list.find((f) => hasAll(f, r.text))
+    if (found) {
+      pieces.push({ run: r, text: r.text, font: found, x: r.x, width: r.width })
+      continue
+    }
+    const parts: { text: string; font: PDFFont }[] = []
+    const glyph = (f: PDFFont, c: number): boolean =>
+      !!(f as unknown as { embedder?: { font?: { hasGlyphForCodePoint?(c: number): boolean } } }).embedder?.font?.hasGlyphForCodePoint?.(c)
+    // L'espace vient d'une police qui en a vraiment un (pas du glyphe « absent »).
+    const spaceFont = list.find((f) => glyph(f, 32)) ?? list[list.length - 1]
+    for (const ch of r.text) {
+      const prev = parts[parts.length - 1]
+      const font = /\s/.test(ch) ? spaceFont : list.find((f) => hasAll(f, ch))
+      if (!font) return false
+      if (prev && prev.font === font) prev.text += ch
+      else parts.push({ text: ch, font })
+    }
+    const natural = parts.map((p) => p.font.widthOfTextAtSize(p.text, r.size))
+    const total = natural.reduce((a, w) => a + w, 0) - (parts.length ? natural[natural.length - 1] - parts[parts.length - 1].font.widthOfTextAtSize(parts[parts.length - 1].text.trimEnd(), r.size) : 0)
+    const k = r.width && total > 0 ? r.width / total : 1
+    let x = r.x
+    parts.forEach((p, i) => {
+      const w = i === parts.length - 1 ? p.font.widthOfTextAtSize(p.text.trimEnd(), r.size) : natural[i]
+      pieces.push({ run: r, text: p.text, font: p.font, x, width: w * k })
+      x += natural[i] * k
+    })
   }
 
   const ops = pdf
@@ -283,23 +309,22 @@ export async function drawTextObject(
     out.push(ops.setFillingRgbColor(cr, cg, cb), ops.rectangle(x, y, w, h), ops.fill())
   }
   for (const r of runs) for (const b of r.rects) if (b.behind) rect(b.x, b.y, b.w, b.h, b.color)
-  for (const [k, r] of runs.entries()) {
-    if (!r.text.trim()) continue
-    const font = embedded[k]
+  for (const { run: r, text, font, x, width } of pieces) {
+    if (!text.trim()) continue
     const key = target.node.newFontDictionary(font.name, font.ref)
     const [cr, cg, cb] = hex(r.color)
     // Filet de sécurité : si la police du PDF n'a pas exactement les mêmes largeurs que celle
     // de l'écran, le mot est légèrement resserré ou élargi pour occuper la même place.
-    const natural = font.widthOfTextAtSize(r.text.trimEnd(), r.size)
-    const scale = r.width && natural > 0 ? Math.min(130, Math.max(70, (100 * r.width) / natural)) : 100
+    const natural = font.widthOfTextAtSize(text.trimEnd(), r.size)
+    const scale = width && natural > 0 ? Math.min(130, Math.max(70, (100 * width) / natural)) : 100
     out.push(
       ops.setFillingRgbColor(cr, cg, cb),
       ops.beginText(),
       ops.setFontAndSize(key, r.size),
       ops.setCharacterSqueeze(Math.abs(scale - 100) < 0.5 ? 100 : scale),
       // Le repère de l'objet a l'axe y vers le bas : on retourne les glyphes pour qu'ils restent droits.
-      ops.setTextMatrix(1, 0, 0, -1, r.x, r.y),
-      ops.showText(font.encodeText(r.text)),
+      ops.setTextMatrix(1, 0, 0, -1, x, r.y),
+      ops.showText(font.encodeText(text)),
       ops.endText()
     )
   }

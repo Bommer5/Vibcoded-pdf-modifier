@@ -36,8 +36,9 @@ const loaded = new Set<string>()
 
 /** Nom de famille CSS stable pour une police d'un PDF donné. */
 export function familyFor(docAsset: string, font: PdfCharFont): string {
-  const base = (font.family || font.name.replace(/[-,].*$/, '')).replace(/[^\w ]+/g, ' ').trim() || 'Police'
-  return `PDF ${docAsset.slice(0, 8)} ${base}`
+  const base = (font.family || font.name.replace(/[-,].*$/, '')).replace(/[^\w ]+/g, ' ').trim()
+  // Police sans nom (Type 3 de Chrome, Skia…) : chacune a le sien, elles ne se mélangent pas.
+  return `PDF ${docAsset.slice(0, 8)} ${base || `Police ${font.sample}`}`
 }
 
 /** Police d'origine d'un caractère du PDF, reconstruite et prête (ou null si impossible). */
@@ -67,10 +68,16 @@ async function build(docAsset: string, pageIndex: number, font: PdfCharFont, use
   const opentype = await import('opentype.js')
   const glyphs = [new opentype.Glyph({ name: '.notdef', advanceWidth: 500, path: new opentype.Path() })]
   const seen = new Set<number>()
+  const drawn = new Set<number>()
   const median = (v: number[]): number => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)]
+  const usedSet = new Set(used)
+  const anonymous = !font.name && !font.family
   for (const g of gf.glyphs) {
     if (seen.has(g.u)) continue
     seen.add(g.u)
+    // Morceau de police sans nom qui ne contient pas l'espace : sa largeur d'espace est
+    // inventée ; l'espace viendra de la police voisine qui l'a vraiment.
+    if (anonymous && (g.u === 32 || g.u === 0xa0) && !usedSet.has(g.u)) continue
     // Glyphe dessiné mais sans largeur : correspondance douteuse (partie de ligature…).
     if (g.w <= 0 && g.d.length) continue
     // Le glyphe doit avoir la largeur observée dans la page (sinon : ligature, mauvaise correspondance).
@@ -97,8 +104,13 @@ async function build(docAsset: string, pageIndex: number, font: PdfCharFont, use
         k += 1
       }
     }
+    if (d.length) drawn.add(g.u)
     glyphs.push(new opentype.Glyph({ name: `uni${g.u.toString(16).toUpperCase().padStart(4, '0')}`, unicode: g.u, advanceWidth: Math.max(0, Math.round(g.w)), path }))
   }
+  // Police dont on ne sait pas lire les lettres (Type 3 : dessins, pas des contours) : il n'en
+  // resterait que l'espace. Mieux vaut une police ressemblante complète qu'un mélange.
+  const letters = used.filter((u) => u > 32 && u !== 0xa0)
+  if (letters.length && letters.filter((u) => drawn.has(u)).length < letters.length * 0.85) return null
   const ascent = gf.ascent > 0 ? gf.ascent : 800
   const descent = -Math.abs(gf.descent || 200)
   const style = font.bold ? (font.italic ? 'Bold Italic' : 'Bold') : font.italic ? 'Italic' : 'Regular'

@@ -39,6 +39,19 @@ function heap(m: WrappedPdfiumModule): Uint8Array {
   return mod.wasmExports.memory ? new Uint8Array(mod.wasmExports.memory.buffer) : mod.HEAPU8!
 }
 
+/**
+ * Taille réelle d'un caractère dans la page : la taille de police (Tf) multipliée par l'échelle
+ * de la matrice du texte. Chrome, Skia, certains Word écrivent « 14,67 px » dans une page
+ * réduite à 75 % : la lettre fait 11 pt, pas 14,67.
+ */
+function charSize(m: WrappedPdfiumModule, tp: number, i: number, buf: number): number {
+  const size = m.FPDFText_GetFontSize(tp, i)
+  if (!m.FPDFText_GetMatrix(tp, i, buf)) return size
+  const [, , c, d] = f32(m, buf, 6)
+  const k = Math.hypot(c, d)
+  return k > 0.01 && Number.isFinite(k) ? size * k : size
+}
+
 function f32(m: WrappedPdfiumModule, ptr: number, count: number): Float32Array {
   return new Float32Array(heap(m).buffer, ptr, count).slice()
 }
@@ -339,7 +352,7 @@ async function fontInfo(id: string, index: number, x: number, y: number): Promis
     const [px, py] = toPage(m, page, doc.pages[index], x, y)
     const ci = m.FPDFText_GetCharIndexAtPos(tp, px, py, 4, 4)
     if (ci < 0) return null
-    const fontSize = m.FPDFText_GetFontSize(tp, ci)
+    const fontSize = charSize(m, tp, ci, buf)
     const obj = m.FPDFText_GetTextObject(tp, ci)
     let fontName = ''
     let bold = false
@@ -440,7 +453,7 @@ async function chars(id: string, index: number): Promise<{ chars: PdfChar[]; fon
         }
         color = colors.get(obj)!
       }
-      out.push({ c, x: ox, y: oy, x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), size: m.FPDFText_GetFontSize(tp, i), f, color, i })
+      out.push({ c, x: ox, y: oy, x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), size: charSize(m, tp, i, buf), f, color, i })
     }
   } finally {
     m.pdfium.wasmExports.free(buf)
@@ -497,6 +510,10 @@ async function glyphs(id: string, index: number, charIndex: number, codepoints: 
     const obj = m.FPDFText_GetTextObject(tp, charIndex)
     const font = obj ? m.FPDFTextObj_GetFont(obj) : 0
     if (!font) return null
+    // Pas de fichier de police dans le PDF (Type 3 : lettres dessinées, comme Chrome les écrit ;
+    // police standard non intégrée) : PDFium renverrait les contours d'une police de remplacement,
+    // fins et étrangers à l'original. On préfère alors une police ressemblante.
+    if (!m.FPDFFont_GetFontData(font, 0, 0, buf) || !new Uint32Array(heap(m).buffer, buf, 1)[0]) return null
     const read = (fn: (ptr: number) => boolean): number => (fn(buf) ? new Float32Array(heap(m).buffer, buf, 1)[0] : 0)
     const outline = (u: number): number[] | null => {
       const path = m.FPDFFont_GetGlyphPath(font, u, UPM)
@@ -530,7 +547,10 @@ async function glyphs(id: string, index: number, charIndex: number, codepoints: 
       seen.add(u)
       const w = read((p) => m.FPDFFont_GetGlyphWidth(font, u, UPM, p))
       // Espace et caractères invisibles : pas de contour, mais une largeur.
-      const d = outline(u) ?? (w > 0 && (!mustExist || u === 32 || u === 0xa0) ? [] : null)
+      // Un vrai caractère sans contour lisible (apostrophe d'une police Type 3…) n'est pas
+      // ajouté vide : la police de secours le dessinera.
+      const blank = u === 32 || u === 0xa0 || (u >= 0x2000 && u <= 0x200f) || u === 0x202f
+      const d = outline(u) ?? (w > 0 && blank ? [] : null)
       if (d === null) return
       if (mustExist && (w <= 0 || (u !== 32 && u !== 0xa0 && (d.length === 0 || JSON.stringify(d) === notdef)))) return
       out.glyphs.push({ u, w, d })

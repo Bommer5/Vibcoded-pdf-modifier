@@ -115,6 +115,37 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   await win.keyboard.press('KeyV')
   check('guide hidden with other tools', await win.locator('.pdf-guide').isHidden())
 
+  // Main : la vue continue sur sa lancée au lâcher (élan), et s'arrête net si la main reste
+  // immobile avant de lâcher ou si on reprend la page.
+  await win.evaluate(() => { const { editor, tools } = window.__feuillet; tools.set('hand'); editor.viewport.zoomAt(2, null) })
+  const vx = () => win.evaluate(() => window.__feuillet.editor.canvas.viewportTransform[4])
+  const cx = ws2.x + ws2.width / 2
+  const cy = ws2.y + ws2.height / 2
+  await win.mouse.move(cx, cy)
+  await win.mouse.down()
+  for (let i = 1; i <= 6; i++) {
+    await win.mouse.move(cx - i * 25, cy)
+    await win.waitForTimeout(8)
+  }
+  await win.mouse.up()
+  const atRelease = await vx()
+  await win.waitForTimeout(500)
+  const glided = (await vx()) - atRelease
+  check('hand: the view keeps gliding after a flick', glided < -20, `${glided.toFixed(1)} px`)
+  await win.waitForTimeout(800)
+  const settled = await vx()
+  await win.waitForTimeout(200)
+  check('hand: the glide slows down and stops', Math.abs((await vx()) - settled) < 0.5)
+  await win.mouse.move(cx, cy)
+  await win.mouse.down()
+  await win.mouse.move(cx - 60, cy, { steps: 4 })
+  await win.waitForTimeout(200)
+  await win.mouse.up()
+  const still = await vx()
+  await win.waitForTimeout(300)
+  check('hand: no glide when the hand stops before releasing', Math.abs((await vx()) - still) < 0.5)
+  await win.keyboard.press('KeyV')
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()
