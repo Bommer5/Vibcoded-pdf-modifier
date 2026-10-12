@@ -29,7 +29,7 @@ function worker(): Promise<Awaited<ReturnType<Tesseract['createWorker']>>> {
     const { createWorker } = await import('tesseract.js')
     // Modèle français (tessdata « best_int », Apache 2.0) livré avec l'application : public/ocr.
     const langPath = new URL('ocr', document.baseURI).href
-    return createWorker('fra', 1, {
+    const w = await createWorker('fra', 1, {
       workerPath: new URL(workerUrl, document.baseURI).href,
       corePath: new URL(coreUrl, document.baseURI).href,
       langPath,
@@ -37,6 +37,11 @@ function worker(): Promise<Awaited<ReturnType<Tesseract['createWorker']>>> {
       cacheMethod: 'none',
       gzip: true
     })
+    // Mise en page analysée (colonnes, encadrés) : l'API part sinon d'un seul bloc de texte et
+    // lit les colonnes ligne à ligne, l'une à la suite de l'autre.
+    // La page est toujours rendue à 300 ppp : inutile de laisser Tesseract l'estimer.
+    await w.setParameters({ tessedit_pageseg_mode: '3' as never, preserve_interword_spaces: '1', user_defined_dpi: '300' })
+    return w
   })()
   return workerPromise
 }
@@ -70,6 +75,56 @@ async function pageImage(page: Page, dpi = OCR_DPI): Promise<HTMLCanvasElement |
   return canvas
 }
 
+/** Le scan est-il parsemé de points isolés (bruit « sel et poivre ») ? Estimation par échantillon. */
+function speckled(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  const { width: W, height: H } = canvas
+  const d = ctx.getImageData(0, 0, W, H).data
+  const g = (x: number, y: number): number => {
+    const i = (y * W + x) * 4
+    return d[i] + d[i + 1] + d[i + 2]
+  }
+  let isolated = 0
+  let n = 0
+  let seed = 12345
+  for (let k = 0; k < 60000; k++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    const x = 1 + (seed % (W - 2))
+    const y = 1 + ((seed >> 8) % (H - 2))
+    const v = g(x, y)
+    const nb = [g(x - 1, y), g(x + 1, y), g(x, y - 1), g(x, y + 1)]
+    n++
+    if (nb.every((u) => Math.abs(u - v) > 240)) isolated++
+  }
+  return isolated / n > 0.004
+}
+
+/** Filtre médian 3×3 (enlève les points isolés en gardant les contours des lettres). */
+function medianFilter(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  const { width: W, height: H } = canvas
+  const img = ctx.getImageData(0, 0, W, H)
+  const src = img.data
+  const gray = new Uint8Array(W * H)
+  for (let i = 0; i < gray.length; i++) gray[i] = (src[i * 4] + src[i * 4 + 1] + src[i * 4 + 2]) / 3
+  const out = new Uint8Array(gray)
+  const win = new Uint8Array(9)
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      let k = 0
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) win[k++] = gray[(y + dy) * W + x + dx]
+      win.sort()
+      out[y * W + x] = win[4]
+    }
+  }
+  for (let i = 0; i < out.length; i++) {
+    // Couleur gardée là où le pixel n'était pas un point isolé.
+    if (Math.abs(out[i] - gray[i]) < 60) continue
+    src[i * 4] = src[i * 4 + 1] = src[i * 4 + 2] = out[i]
+  }
+  ctx.putImageData(img, 0, 0)
+}
+
 /** Couleur du texte (pixels les plus sombres) et du fond (les plus clairs) d'une zone. */
 function colorsIn(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): { ink: string; bg: string } {
   const w = Math.max(1, Math.round(x1 - x0))
@@ -90,6 +145,8 @@ function colorsIn(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: num
 export async function recognizePage(page: Page, progress?: (p: number) => void): Promise<OcrData> {
   const canvas = await pageImage(page)
   if (!canvas) return { chars: [] }
+  // Scan bruité (poussières, « sel et poivre ») : nettoyé avant la lecture.
+  if (speckled(canvas)) medianFilter(canvas)
   progress?.(0.1)
   const w = await worker()
   progress?.(0.3)
@@ -102,7 +159,37 @@ export async function recognizePage(page: Page, progress?: (p: number) => void):
   for (const block of data.blocks ?? []) {
     for (const para of block.paragraphs) {
       for (const line of para.lines) {
-        const words = line.words.filter((wd) => wd.confidence > 35 && wd.text.trim())
+        // Mots gardés même peu sûrs (un mot manquant est pire qu'une lettre douteuse) ; seules
+        // les poussières (tout petites, sans lettre ni chiffre, peu sûres) sont écartées.
+        const heights = line.words.map((wd) => wd.bbox.y1 - wd.bbox.y0).sort((a, c) => a - c)
+        const typical = heights[Math.floor(heights.length / 2)] || 1
+        const words = line.words.filter((wd) => {
+          if (!wd.text.trim()) return false
+          const small = wd.bbox.y1 - wd.bbox.y0 < typical * 0.45
+          const noLetter = !/[\p{L}\p{N}€$%&@]/u.test(wd.text)
+          // Peu sûr mais de taille normale et avec des lettres : c'est un vrai mot (souvent
+          // une apostrophe ou un accent douteux), il est gardé.
+          if (wd.confidence < 15 && (small || noLetter)) return false
+          return !(small && wd.confidence < 60 && (noLetter || wd.text.length <= 2))
+        })
+        // Apostrophe lue deux fois (« qu'’hier ») : une seule, et la lettre fantôme disparaît.
+        for (const wd of words) {
+          for (let i = wd.symbols.length - 1; i > 0; i--) {
+            if (/^['’]$/.test(wd.symbols[i].text) && /^['’]$/.test(wd.symbols[i - 1].text)) {
+              wd.symbols[i - 1].bbox.x1 = wd.symbols[i].bbox.x1
+              wd.symbols[i - 1].text = '’'
+              wd.symbols.splice(i, 1)
+            }
+          }
+        }
+        // Boîte de lettre gonflée par une poussière voisine : ramenée à une largeur normale.
+        const widths = words.flatMap((wd) => wd.symbols.map((sy) => sy.bbox.x1 - sy.bbox.x0)).sort((a, c) => a - c)
+        const wMed = widths[Math.floor(widths.length / 2)] || 1
+        for (const wd of words) {
+          for (const sy of wd.symbols) {
+            if (sy.bbox.x1 - sy.bbox.x0 > wMed * 3.5 && [...sy.text].length === 1) sy.bbox.x0 = sy.bbox.x1 - wMed * 1.4
+          }
+        }
         if (!words.length) continue
         const b = line.baseline
         const baseAt = (x: number): number => (b.x1 !== b.x0 ? b.y0 + ((b.y1 - b.y0) * (x - b.x0)) / (b.x1 - b.x0) : b.y0)

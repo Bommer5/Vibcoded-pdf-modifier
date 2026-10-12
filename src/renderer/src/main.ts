@@ -38,6 +38,7 @@ import { editTextAt } from './pdf/edit-text'
 import { pdfEngine } from './pdf/engine'
 import { loadObjectFaces } from './pdf/pdf-fonts'
 import { TextFlow } from './pdf/flow'
+import { matchFont, recognizePage } from './pdf/ocr'
 import { PAPER_STYLES, type PaperStyle } from './core/paper'
 import type { Page } from './core/page'
 import { settings } from './tools/settings'
@@ -604,4 +605,4 @@ const make = {
   rect: (o: object) => new Rect(o),
   table: (rows: number, cols: number) => Table.create(rows, cols)
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont } } })

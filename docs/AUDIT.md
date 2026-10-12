@@ -80,7 +80,9 @@ paragraphes).
   listes Word natives.
 - **OCR** : la police du scan est choisie parmi les polices courantes (pas la police exacte
   si elle est rare) ; le texte d'origine est recouvert de la couleur du fond (un fond très
-  texturé laisse voir le rectangle) ; l'OCR se lance page par page.
+  texturé laisse voir le rectangle) ; l'OCR se lance page par page. Sur une page penchée ou
+  un texte clair sur fond sombre, la police devinée est parfois une voisine (Segoe UI pour
+  Arial, Times gras pour Arial) ; le texte, lui, est exact.
 - **Mémoire de base d'Electron** : environ 150 Mo par processus (incompressible avec
   Electron). Tauri serait plus léger, mais moins homogène entre Windows, Linux et Android.
 - **Historique** : les changements de calques (masquer, renommer) ne sont pas annulables.
@@ -88,9 +90,15 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **221 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  **293 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
   PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
-  superposés, insertion de PDF.
+  superposés, insertion de PDF, modification fidèle du texte d'un PDF, OCR.
+- `tests/e2e/ocr-bench.cjs` (inclus) : banc d'essai de l'OCR sur 20 pages « scannées » au
+  texte connu (polices, 8 à 36 pt, gras, italique, symboles, majuscules accentuées, 100 à
+  300 ppp, JPEG bruité, flou, page penchée, couleurs, texte clair sur fond sombre, deux
+  colonnes, photo, document de trois pages). Taux d'erreur par caractère moyen : 0,05 %
+  (pire cas : JPEG bruité, 0,9 %) ; police, taille, gras, italique et couleur retrouvés ;
+  environ 1 s par page. Le tableau détaillé est écrit dans `ocr-bench.md`.
 - `npm run test:mobile` : **17 vérifications** sur un téléphone simulé (Pixel 7, tactile).
 - `node tests/bench.mjs` : comparaison chiffrée entre le Rust et le JavaScript.
 - `xvfb-run -a node tests/e2e/perf.cjs . out` : ouverture, défilement, annulation, mémoire.
