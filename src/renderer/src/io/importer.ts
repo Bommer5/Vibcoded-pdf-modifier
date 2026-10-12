@@ -10,6 +10,7 @@ import { pdfEngine } from '../pdf/engine'
 import { loadProject } from './project'
 import { stripAnnotations } from './hybrid'
 import { askPassword } from '../ui/password'
+import { askPdfInsert } from '../ui/pdf-insert-dialog'
 import { decodeText, importTextAsPages, textBox, TEXT_EXT } from './text'
 import { importXournal } from './xournal'
 
@@ -208,11 +209,118 @@ export class Importer {
         throw new Error('Utilisez « Ouvrir » pour un projet .feuillet')
       case null:
         throw new Error(`Format non pris en charge : ${file.name}`)
+      case 'pdf':
+        return this.insertPdf(file.data, file.name, at)
+      case 'office':
+        if (await platform.officeAvailable()) {
+          this.ed.notify(`Conversion de ${file.name}…`)
+          return this.insertPdf(await platform.officeConvert(file.name, file.data, 'pdf'), file.name, at)
+        }
+      // fallthrough : sans LibreOffice, texte seul en nouvelles pages
       default: {
         const pages = await this.appendDocument(file, this.targetPage(at))
         if (pages[0]) this.ed.viewport.fit(this.ed.doc.box(pages[0]))
       }
     }
+  }
+
+  /**
+   * PDF inséré dans un document existant : on demande comment (image sur la page, ou
+   * nouvelles pages au format du PDF ou du document), quelles pages et où.
+   */
+  private async insertPdf(bytes: Uint8Array, name: string, at: Point | null): Promise<void> {
+    const { asset, sizes } = await this.loadPdf(bytes, name)
+    const target = this.targetPage(at)
+    const choice = await askPdfInsert(name, sizes, target, this.thumbnail(asset.id, sizes[0]))
+    if (!choice) return
+    const { doc } = this.ed
+    if (choice.mode === 'image') {
+      // Première page choisie sur la page visée, les suivantes sur les pages d'après (créées au besoin).
+      let page: Page = target
+      for (const [k, index] of choice.pages.entries()) {
+        if (k > 0) page = doc.pages[doc.pages.indexOf(page) + 1] ?? doc.addPage({ width: page.width, height: page.height }, { after: page })
+        const img = await this.pdfPageImage(asset.id, index, sizes[index])
+        const center = k === 0 && at ? at : new Point(page.left + page.width / 2, page.top + page.height / 2)
+        this.place(img, center)
+      }
+      return
+    }
+    let after = choice.position === 'end' ? doc.pages.at(-1)! : target
+    const added: Page[] = []
+    for (const index of choice.pages) {
+      if (choice.mode === 'pages-pdf') {
+        after = doc.addPage(sizes[index], { bg: { kind: 'pdf', assetId: asset.id, index }, after })
+      } else {
+        // Format du document : page de la taille de la page visée, PDF centré sans déformation.
+        after = doc.addPage({ width: target.width, height: target.height }, { after })
+        const img = await this.pdfPageImage(asset.id, index, sizes[index])
+        const k = Math.min(after.width / img.getScaledWidth(), after.height / img.getScaledHeight())
+        img.scale(img.scaleX * k)
+        img.setPositionByOrigin(new Point(after.left + after.width / 2, after.top + after.height / 2), 'center', 'center')
+        img.setCoords()
+        this.ed.add(img)
+      }
+      added.push(after)
+    }
+    if (added[0]) this.ed.viewport.fit(doc.box(added[0]))
+  }
+
+  /** Ouvre un PDF (mot de passe compris) et lit la taille de ses pages. */
+  private async loadPdf(bytes: Uint8Array, name: string): Promise<{ asset: Asset; sizes: { width: number; height: number }[] }> {
+    const asset = assets.add(bytes, 'application/pdf')
+    const sizes = await this.openWithPassword(asset.id, bytes, name)
+    // PDF chiffré : on garde la copie déverrouillée (export, modification du texte…).
+    const clear = pdfEngine.decrypted.get(asset.id)
+    if (clear) {
+      assets.replace(asset.id, clear)
+      pdfEngine.decrypted.delete(asset.id)
+      this.ed.notify('PDF déverrouillé : il sera enregistré sans protection.', 'info')
+    }
+    return { asset, sizes }
+  }
+
+  /** Aperçu de la première page pour la boîte de dialogue. */
+  private async thumbnail(id: string, size: { width: number; height: number }): Promise<HTMLCanvasElement | null> {
+    try {
+      const k = 150 / Math.max(size.width, size.height)
+      const w = Math.max(1, Math.round(size.width * k * 2))
+      const h = Math.max(1, Math.round(size.height * k * 2))
+      const bmp = await pdfEngine.render(id, 0, w, h)
+      const c = document.createElement('canvas')
+      c.width = w
+      c.height = h
+      c.getContext('2d')!.drawImage(bmp, 0, 0)
+      bmp.close()
+      return c
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Page de PDF en image (≈ 220 ppp, nette à l'écran et à l'impression). Elle garde la
+   * référence de sa page d'origine : l'export PDF la réintègre en vectoriel (texte compris).
+   */
+  private async pdfPageImage(id: string, index: number, size: { width: number; height: number }): Promise<FabricImage> {
+    const scale = Math.min(3, 3600 / Math.max(size.width, size.height))
+    const w = Math.max(1, Math.round(size.width * scale))
+    const h = Math.max(1, Math.round(size.height * scale))
+    const bmp = await pdfEngine.render(id, index, w, h)
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    const ctx = c.getContext('2d')!
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.drawImage(bmp, 0, 0)
+    bmp.close()
+    const blob = await new Promise<Blob>((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('Rendu impossible'))), 'image/png'))
+    const png = await assets.addBlob(blob)
+    const img = await FabricImage.fromURL(png.url)
+    ;(img as Obj & { pdfPage?: { assetId: string; index: number } }).assetId = png.id
+    ;(img as Obj & { pdfPage?: { assetId: string; index: number } }).pdfPage = { assetId: id, index }
+    img.set({ scaleX: size.width / w, scaleY: size.height / h })
+    return img
   }
 
   /** Ajoute les pages d'un document (PDF, bureautique, Xournal, texte, image pleine page). */
@@ -270,15 +378,7 @@ export class Importer {
 
   /** Pages d'un PDF : seule la taille est lue ici (instantané) ; le rendu se fait à l'affichage. */
   private async appendPdf(bytes: Uint8Array, _name: string, after?: Page): Promise<Page[]> {
-    const asset = assets.add(bytes, 'application/pdf')
-    const sizes = await this.openWithPassword(asset.id, bytes, _name)
-    // PDF chiffré : on garde la copie déverrouillée (export, modification du texte…).
-    const clear = pdfEngine.decrypted.get(asset.id)
-    if (clear) {
-      assets.replace(asset.id, clear)
-      pdfEngine.decrypted.delete(asset.id)
-      this.ed.notify('PDF déverrouillé : il sera enregistré sans protection.', 'info')
-    }
+    const { asset, sizes } = await this.loadPdf(bytes, _name)
     const pages: Page[] = []
     sizes.forEach((size, index) => {
       pages.push(this.ed.doc.addPage(size, { bg: { kind: 'pdf', assetId: asset.id, index }, after: pages.at(-1) ?? after }))
@@ -338,6 +438,7 @@ export class Importer {
     obj.setCoords()
     this.ed.add(obj)
     this.ed.canvas.setActiveObject(obj)
+    this.ed.placed?.()
     this.ed.canvas.requestRenderAll()
   }
 }

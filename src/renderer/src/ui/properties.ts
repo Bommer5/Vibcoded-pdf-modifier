@@ -118,6 +118,7 @@ export class PropertiesPanel {
         this.section('Astuces')
         this.hint('Cliquez-glissez pour sélectionner. Glissez la sélection pour la déplacer.')
         this.hint('Ctrl+C puis Ctrl+V colle sous le pointeur. Espace maintenu = déplacer la vue.')
+        this.hint('Objets superposés : Alt+clic prend celui du dessous ; clic droit les liste tous.')
     }
   }
 

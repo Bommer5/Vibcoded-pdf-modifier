@@ -44,6 +44,8 @@ FabricObject.customProperties = [
   'contourFill',
   'contourHeight',
   'paragraphSpacing',
+  'locked',
+  'pdfPage',
   'selectable',
   'evented',
   'hoverCursor'

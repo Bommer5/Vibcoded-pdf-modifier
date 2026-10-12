@@ -12,7 +12,8 @@ export function parseRange(text: string, count: number): number[] {
   for (const part of text.split(/[,;\s]+/).filter(Boolean)) {
     const [a, b] = part.split('-').map((n) => parseInt(n, 10))
     if (Number.isNaN(a)) continue
-    const end = Number.isNaN(b) ? (part.endsWith('-') ? count : a) : b
+    // « 5 » : une seule page ; « 5- » : jusqu'à la fin ; « 2-4 » : de 2 à 4.
+    const end = b === undefined || Number.isNaN(b) ? (part.endsWith('-') ? count : a) : b
     for (let i = Math.max(1, Math.min(a, end)); i <= Math.min(count, Math.max(a, end)); i++) out.add(i - 1)
   }
   return [...out].sort((x, y) => x - y)

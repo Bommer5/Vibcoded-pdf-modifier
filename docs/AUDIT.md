@@ -38,6 +38,20 @@ qui a été corrigé (mesures à l'appui) et ce qui reste faible. Mesures :
 | Perte de travail après un plantage | Divers | Sauvegarde automatique (45 s et à la mise en arrière-plan) + proposition de restauration |
 | Pas de marge pour écrire | PDF Expert, Adobe Reader | Pages libres : ajouter une page lignée ou quadrillée n'importe où, déborder de la page |
 
+## 2 bis. Retours d'utilisateurs pris en compte (interface)
+
+Synthèse des critiques récurrentes (forums Xournal++, GoodNotes, OneNote, Acrobat, PDF-XChange,
+Figma, Inkscape) et réponse apportée :
+
+| Critique | Réponse dans Feuillet |
+|---|---|
+| « Je voulais déplacer, ça a dessiné » | Toucher = sélectionner un objet ; appui dans la sélection = déplacer ; retour automatique à Sélection après insertion ; bouton du stylet = lasso |
+| Le cadre d'un trait en diagonale « vole » les clics | Test au tracé (tolérance 6 px) pour traits et formes sans fond |
+| Impossible de prendre l'objet du dessous | Alt+clic (cycle), clic droit = liste des objets superposés avec aperçu, verrouillage |
+| Icônes emoji, incohérentes selon le système | Jeu d'icônes Lucide homogène, info-bulles nom + raccourci réel, couleur du stylo sur son bouton |
+| Fonctions cachées | Barre d'état : gestes de l'outil actif ; menu clic droit complet |
+| PDF inséré au mauvais format (paysage / portrait) | Dialogue : image redimensionnable, pages au format du PDF ou du document, choix des pages |
+
 ## 3. Ce qui reste faible (à traiter)
 
 Corrigé depuis la version précédente de cet audit : polices réelles intégrées au PDF
@@ -61,8 +75,9 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **124 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
-  PDF, impression, finitions, mise en forme du texte façon Word.
+  **155 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
+  superposés, insertion de PDF.
 - `npm run test:mobile` : **15 vérifications** sur un téléphone simulé (Pixel 7, tactile).
 - `node tests/bench.mjs` : comparaison chiffrée entre le Rust et le JavaScript.
 - `xvfb-run -a node tests/e2e/perf.cjs . out` : ouverture, défilement, annulation, mémoire.

@@ -15,64 +15,66 @@
   <body>
     <div id="app">
       <header class="topbar">
-        <button data-action="mobile-menu" class="icon-btn mobile-only" title="Menu" aria-label="Menu">≡</button>
-        <button data-action="toggle-sidebar" class="icon-btn" title="Pages, sommaire et calques (F9)" aria-label="Panneau latéral">▤</button>
-        <span class="brand">Feuillet</span>
+        <button data-action="mobile-menu" class="icon-btn mobile-only" title="Menu" aria-label="Menu" data-icon="menu"></button>
+        <button data-action="toggle-sidebar" class="icon-btn" title="Pages, sommaire et calques (F9)" aria-label="Panneau latéral" data-icon="sidebar"></button>
+        <span class="brand"><img src="./favicon.png" alt="" />Feuillet</span>
         <nav class="menubar" id="menubar" aria-label="Menus"></nav>
         <span class="sep"></span>
-        <button data-action="undo" title="Annuler (Ctrl+Z)" aria-label="Annuler">↶</button>
-        <button data-action="redo" title="Rétablir (Ctrl+Maj+Z / Ctrl+Y)" aria-label="Rétablir">↷</button>
+        <button data-action="undo" title="Annuler (Ctrl+Z)" aria-label="Annuler" data-icon="undo" class="icon-btn"></button>
+        <button data-action="redo" title="Rétablir (Ctrl+Maj+Z / Ctrl+Y)" aria-label="Rétablir" data-icon="redo" class="icon-btn"></button>
         <span class="sep"></span>
-        <button data-action="add-page" class="desktop-only" title="Ajouter une page après la page actuelle">+ Page</button>
+        <button data-action="add-page" class="desktop-only" title="Ajouter une page après la page actuelle" data-icon="add" data-label="Page"></button>
         <span class="spacer"></span>
         <span class="page-nav" title="Aller à la page (Ctrl+G)">
           Page <input id="page-input" type="number" min="1" value="1" aria-label="Numéro de page" /> / <span id="page-count">1</span>
         </span>
-        <button data-action="find" class="icon-btn" title="Rechercher (Ctrl+F)" aria-label="Rechercher">🔍</button>
+        <button data-action="find" class="icon-btn" title="Rechercher (Ctrl+F)" aria-label="Rechercher" data-icon="find"></button>
         <span id="pointer-info" class="muted"></span>
-        <button data-action="toggle-props" class="mobile-only" title="Propriétés" aria-label="Propriétés">⚙</button>
-        <button data-action="zoom-out" title="Zoom arrière" aria-label="Zoom arrière">−</button>
+        <button data-action="toggle-props" class="mobile-only" title="Propriétés" aria-label="Propriétés" data-icon="props"></button>
+        <button data-action="zoom-out" title="Zoom arrière" aria-label="Zoom arrière" data-icon="zoom-out" class="icon-btn"></button>
         <button data-action="zoom-fit" id="zoom-label" class="zoom-label" title="Ajuster à la page (Ctrl+0)">100 %</button>
-        <button data-action="zoom-in" title="Zoom avant" aria-label="Zoom avant">+</button>
+        <button data-action="zoom-in" title="Zoom avant" aria-label="Zoom avant" data-icon="zoom-in" class="icon-btn"></button>
       </header>
       <aside class="sidebar" id="sidebar" aria-label="Pages, sommaire et calques"></aside>
       <aside class="toolbar" id="toolbar" aria-label="Outils">
-        <button data-tool="select" title="Sélection (V)" aria-label="Sélection">⬚</button>
-        <button data-tool="lasso" title="Lasso : entourer pour sélectionner (L)" aria-label="Lasso">➰</button>
-        <button data-tool="hand" title="Main (H, ou maintenir Espace)" aria-label="Main">✋</button>
+        <button data-tool="select" title="Sélection (V)" aria-label="Sélection" data-icon="select"></button>
+        <button data-tool="lasso" title="Lasso : entourer pour sélectionner (L)" aria-label="Lasso" data-icon="lasso"></button>
+        <button data-tool="hand" title="Main (H, ou maintenir Espace)" aria-label="Main" data-icon="hand"></button>
         <span class="tool-sep"></span>
-        <button data-tool="textselect" title="Sélectionner le texte du PDF : copier, surligner, souligner, barrer (X)" aria-label="Sélection de texte">𝙸</button>
-        <button data-tool="edittext" title="Modifier le texte du PDF (M) — ou double-clic sur un texte" aria-label="Modifier le texte">✍</button>
+        <button data-tool="textselect" title="Sélectionner le texte du PDF : copier, surligner, souligner, barrer (X)" aria-label="Sélection de texte" data-icon="textselect"></button>
+        <button data-tool="edittext" title="Modifier le texte du PDF (M) — ou double-clic sur un texte" aria-label="Modifier le texte" data-icon="edittext"></button>
         <span class="tool-sep"></span>
-        <button data-tool="pen" title="Stylo (P) — Maj : ligne droite" aria-label="Stylo">✎</button>
-        <button data-tool="highlighter" title="Surligneur (S)" aria-label="Surligneur">🖍</button>
-        <button data-tool="eraser" title="Gomme (E)" aria-label="Gomme">⌫</button>
-        <button data-tool="shape" title="Formes : ligne, flèche, rectangle, ellipse… (R)" aria-label="Formes">◇</button>
+        <button data-tool="pen" title="Stylo (P) — Maj : ligne droite" aria-label="Stylo" data-icon="pen"></button>
+        <button data-tool="highlighter" title="Surligneur (S)" aria-label="Surligneur" data-icon="highlighter"></button>
+        <button data-tool="eraser" title="Gomme (E)" aria-label="Gomme" data-icon="eraser"></button>
+        <button data-tool="shape" title="Formes : ligne, flèche, rectangle, ellipse… (R)" aria-label="Formes" data-icon="shape"></button>
         <span class="tool-sep"></span>
-        <button data-tool="text" title="Texte (T)" aria-label="Texte">T</button>
-        <button data-tool="table" title="Tableau" aria-label="Tableau">▦</button>
-        <button data-action="chart" title="Insérer un graphique" aria-label="Graphique">📊</button>
+        <button data-tool="text" title="Texte (T)" aria-label="Texte" data-icon="text"></button>
+        <button data-tool="table" title="Tableau" aria-label="Tableau" data-icon="table"></button>
+        <button data-action="chart" title="Insérer un graphique" aria-label="Graphique" data-icon="chart"></button>
       </aside>
       <main class="workspace" id="workspace">
         <canvas id="stage"></canvas>
         <div class="selection-bar" id="selection-bar" hidden>
-          <button data-action="copy" title="Copier (Ctrl+C)">Copier</button>
-          <button data-action="cut" title="Couper (Ctrl+X)">Couper</button>
-          <button data-action="paste" title="Coller (Ctrl+V)">Coller</button>
-          <button data-action="duplicate" title="Dupliquer (Ctrl+D)">Dupliquer</button>
+          <button data-action="copy" title="Copier (Ctrl+C)" data-icon="copy" data-label="Copier"></button>
+          <button data-action="cut" title="Couper (Ctrl+X)" data-icon="cut" data-label="Couper"></button>
+          <button data-action="paste" title="Coller (Ctrl+V)" data-icon="paste" data-label="Coller"></button>
+          <button data-action="duplicate" title="Dupliquer (Ctrl+D)" data-icon="duplicate" data-label="Dupliquer"></button>
           <span class="sep"></span>
-          <button data-action="group" title="Grouper (Ctrl+G)">Grouper</button>
-          <button data-action="ungroup" title="Dégrouper (Ctrl+Maj+G)">Dégrouper</button>
-          <button data-action="front" title="Premier plan (Ctrl+Maj+])">Devant</button>
-          <button data-action="back" title="Arrière-plan (Ctrl+Maj+[)">Derrière</button>
+          <button data-action="group" title="Grouper (Ctrl+G)" data-icon="group" data-label="Grouper"></button>
+          <button data-action="ungroup" title="Dégrouper (Ctrl+Maj+G)" data-icon="ungroup" data-label="Dégrouper"></button>
+          <button data-action="front" title="Premier plan (Ctrl+Maj+])" data-icon="front" data-label="Devant"></button>
+          <button data-action="back" title="Arrière-plan (Ctrl+Maj+[)" data-icon="back" data-label="Derrière"></button>
           <span class="sep"></span>
-          <button data-action="delete" class="danger" title="Supprimer (Suppr)">Supprimer</button>
+          <button data-action="delete" class="danger" title="Supprimer (Suppr)" data-icon="delete" data-label="Supprimer"></button>
         </div>
         <div class="drop-overlay" id="drop-overlay" hidden>Déposez vos fichiers ici</div>
       </main>
       <aside class="properties" id="properties" aria-label="Propriétés"></aside>
       <footer class="statusbar">
-        <span>Zoom : <kbd id="key-zoom-in"></kbd> / <kbd id="key-zoom-out"></kbd> (sur le pointeur) · Ctrl+molette · Espace = déplacer · Glissez des fichiers pour les insérer</span>
+        <span id="tool-hint" class="tool-hint"></span>
+        <span class="spacer"></span>
+        <span class="zoom-hint">Zoom : <kbd id="key-zoom-in"></kbd> / <kbd id="key-zoom-out"></kbd> (sur le pointeur) · Ctrl+molette · Espace = déplacer</span>
       </footer>
     </div>
     <div class="toasts" id="toasts" aria-live="polite"></div>

@@ -18,6 +18,8 @@ export interface Editor {
   add(obj: FabricObject): void
   /** Ressources à conserver en changeant de document (ex. images dans le presse-papiers). */
   keepAssets?: () => Set<string>
+  /** Un objet vient d'être inséré et sélectionné (image, PDF…) : on repasse à l'outil Sélection. */
+  placed?: () => void
   /** Position du pointeur en coordonnées document, s'il est sur le canevas. */
   pointer(): Point | null
 }

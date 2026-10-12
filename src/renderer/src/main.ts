@@ -28,6 +28,9 @@ import { Layers } from './core/layers'
 import { FindBar } from './ui/find-bar'
 import { QuickBar } from './ui/quickbar'
 import { TextToolbar } from './ui/text-toolbar'
+import { applyIcons } from './ui/icons'
+import { installTooltips } from './ui/tooltip'
+import { Picking } from './ui/picking'
 import { Sidebar } from './ui/sidebar'
 import { TextSelection } from './ui/text-selection'
 import { editTextAt } from './pdf/edit-text'
@@ -35,6 +38,8 @@ import { PAPER_STYLES, type PaperStyle } from './core/paper'
 import type { Page } from './core/page'
 import { settings } from './tools/settings'
 import { pageRenderer } from './core/page-renderer'
+
+applyIcons()
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 const workspace = $('workspace')
@@ -51,7 +56,10 @@ const canvas = new Canvas('stage', {
   selectionBorderColor: '#4f8cff',
   selectionDashArray: [4, 4],
   // Une sélection au cadre prend tout ce qu'elle touche (pas seulement ce qui est entièrement dedans).
-  selectionFullyContained: false
+  selectionFullyContained: false,
+  // Bouton latéral du stylet (clic droit) transmis aux outils : lasso temporaire.
+  fireRightClick: true,
+  stopContextMenu: false
 })
 
 // --- Notifications -----------------------------------------------------------
@@ -115,6 +123,16 @@ const exportDialog = new ExportDialog(editor, exporter)
 const session = new FileSession(editor, importer, exporter)
 fileSession = session
 const shortcuts = new ShortcutManager()
+// Info-bulles avec le raccourci réellement configuré (Préférences › Raccourcis).
+const ACTION_KEYS: Record<string, ActionId> = {
+  undo: 'undo', redo: 'redo', find: 'find', 'zoom-in': 'zoomIn', 'zoom-out': 'zoomOut', 'zoom-fit': 'zoomReset',
+  'toggle-sidebar': 'sidebar', duplicate: 'duplicate', group: 'group', ungroup: 'ungroup', front: 'front', back: 'back', delete: 'delete'
+}
+installTooltips((b) => {
+  const id = b.dataset.tool ? (`tool.${b.dataset.tool}` as ActionId) : ACTION_KEYS[b.dataset.action ?? '']
+  const combo = id && shortcuts.get(id)?.[0]
+  return combo ? prettyCombo(combo) : null
+})
 
 viewport.fit(doc.bounds())
 new ResizeObserver(() => canvas.setDimensions({ width: workspace.clientWidth, height: workspace.clientHeight })).observe(workspace)
@@ -133,11 +151,38 @@ const properties = new PropertiesPanel(editor, tools, tableEditor)
 function setTool(tool: Tool): void {
   tools.set(tool)
 }
-tools.onChange((tool) =>
+editor.placed = () => setTool('select')
+// Barre d'état : ce que fait l'outil actif et ses gestes cachés (comme la barre d'état d'Office).
+const TOOL_HINTS: Partial<Record<Tool, string>> = {
+  select: 'Clic : sélectionner · Alt+clic : objet du dessous · Clic droit : liste des objets et commandes · Glisser : déplacer',
+  lasso: 'Entourez les objets à sélectionner · Appui dans la sélection : la déplacer',
+  hand: 'Glissez pour déplacer la vue · Molette : défiler · Ctrl+molette : zoom',
+  pen: 'Maj : ligne droite · Toucher un objet : le sélectionner · Appui dans la sélection : la déplacer · Bouton du stylet : lasso',
+  highlighter: 'Sur le texte d’un PDF, le surlignage s’aligne sur les lignes · Maj : trait droit libre',
+  eraser: 'Glissez sur un trait pour l’effacer · Le bout gomme du stylet efface aussi',
+  shape: 'Glissez pour tracer · Maj : carré, cercle, angles de 15° · La forme reste sélectionnée pour l’ajuster',
+  text: 'Clic : texte · Glisser : zone de texte · Entourer à main levée : texte qui épouse la forme',
+  table: 'Cliquez pour placer le tableau · Double-clic sur une cellule pour écrire',
+  textselect: 'Glissez sur le texte du PDF pour le copier, le surligner, le souligner ou le barrer',
+  edittext: 'Cliquez sur un texte du PDF pour le modifier'
+}
+tools.onChange((tool) => {
   document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool))
-)
+  $('tool-hint').textContent = TOOL_HINTS[tool] ?? ''
+})
 document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool as Tool)))
 setTool('select')
+// Couleur actuelle affichée sur les boutons Stylo et Surligneur.
+function showToolColors(): void {
+  for (const [tool, color] of [['pen', settings.value.penColor], ['highlighter', settings.value.highlighterColor]] as const) {
+    const b = document.querySelector<HTMLElement>(`#toolbar [data-tool=${tool}]`)
+    if (!b) continue
+    b.dataset.swatch = ''
+    b.style.setProperty('--swatch', color)
+  }
+}
+settings.onChange(showToolColors)
+showToolColors()
 
 // Double-clic sur un graphique : rééditer ses données ; sur le texte d'un PDF : le modifier.
 canvas.on('mouse:dblclick', ({ target, scenePoint }) => {
@@ -339,6 +384,8 @@ const run = (name: string) => (): void => {
   if (name.startsWith('recent:')) return void session.openRecent(name.slice(7))
   void Promise.resolve(actions[name]?.()).then(refreshButtons)
 }
+// Clic droit : objets sous le pointeur (y compris ceux du dessous) et commandes usuelles.
+const picking = new Picking(editor, tools, (a) => run(a)())
 
 const menus: Menu[] = [
   {
@@ -532,4 +579,4 @@ const make = {
   rect: (o: object) => new Rect(o),
   table: (rows: number, cols: number) => Table.create(rows, cols)
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking } })

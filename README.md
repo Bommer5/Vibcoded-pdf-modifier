@@ -32,6 +32,16 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
   « Interligne et espacement » ▾ : interligne et **espace entre paragraphes / éléments de liste**).
   Comme dans Word, curseur dans un mot = tout le mot ; Entrée continue la liste, Entrée sur un
   élément vide la termine, Tab / Maj+Tab change de niveau, les numéros se recalculent seuls
+- **Prendre et déplacer sans dessiner par erreur** : avec le stylo, un simple toucher sur une
+  image, un texte ou une forme la sélectionne, et un appui dans la sélection la déplace (on ne
+  trace que sur le vide). Après une insertion, l'outil Sélection revient tout seul. Bouton
+  latéral du stylet maintenu = lasso temporaire
+- **Objets superposés** : un trait se prend sur son tracé, pas sur son cadre ; **Alt+clic** prend
+  l'objet du dessous ; **clic droit** liste tous les objets sous le pointeur (survol = aperçu) avec
+  les commandes usuelles et **Verrouiller** (l'objet ne se prend plus au clic)
+- **Insérer un PDF** dans un document : comme **image** sur la page (déplaçable, redimensionnable,
+  et toujours vectorielle à l'export), ou en **nouvelles pages** au format du PDF ou du document
+  (portrait dans un document paysage sans déformation), avec choix des pages et de la position
 - **Lasso** (L), **reconnaissance de formes** (gardez le stylet immobile en fin de tracé),
   **barre rapide** : tailles fin / moyen / épais, `[` et `]`, couleurs favorites
 - **Tableaux** (double-clic sur une cellule, Tab pour passer à la suivante) et **graphiques**
@@ -88,6 +98,8 @@ La CI GitHub Actions (`.github/workflows/build.yml`) construit à chaque push l'
 | Liste à puces / niveau de liste | Ctrl+Maj+L / Tab, Maj+Tab |
 | Effacer la mise en forme | Ctrl+Espace |
 | Lasso / Sélection de texte / Modifier le texte du PDF | L / X / M (ou double-clic) |
+| Objet du dessous / liste des objets sous le pointeur | Alt+clic / clic droit |
+| Saisir n'importe quel objet avec le stylo | Ctrl + appui |
 | Rechercher / Aller à la page | Ctrl+F / G ou Ctrl+Maj+N |
 | Page suivante / précédente / début / fin | Pg. suiv. / Pg. préc. / Début / Fin |
 | Taille du trait | [ et ] |

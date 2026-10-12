@@ -16,7 +16,7 @@
     "build:web": "vite build -c vite.web.config.ts",
     "android:sync": "npm run build:web && cap sync android",
     "android:open": "cap open android",
-    "test:e2e": "npm run build && node tests/e2e/fixtures.cjs test-results/fx && node tests/e2e/app.cjs . test-results/fx test-results/out && node tests/e2e/tools.cjs . test-results/tools && node tests/e2e/essentials.cjs . test-results/ess && node tests/e2e/files.cjs . test-results/files && node tests/e2e/pdf-quality.cjs . test-results/quality && node tests/e2e/print.cjs . test-results/print && node tests/e2e/polish.cjs . test-results/polish && node tests/e2e/word-format.cjs . test-results/word",
+    "test:e2e": "npm run build && node tests/e2e/fixtures.cjs test-results/fx && node tests/e2e/app.cjs . test-results/fx test-results/out && node tests/e2e/tools.cjs . test-results/tools && node tests/e2e/essentials.cjs . test-results/ess && node tests/e2e/files.cjs . test-results/files && node tests/e2e/pdf-quality.cjs . test-results/quality && node tests/e2e/print.cjs . test-results/print && node tests/e2e/polish.cjs . test-results/polish && node tests/e2e/word-format.cjs . test-results/word && node tests/e2e/selection.cjs . test-results/selection && node tests/e2e/pdf-insert.cjs . test-results/pdf-insert",
     "build:native": "cargo build --release --target wasm32-unknown-unknown --manifest-path native/feuillet-core/Cargo.toml && node -e \"require('fs').copyFileSync('native/feuillet-core/target/wasm32-unknown-unknown/release/feuillet_core.wasm','src/renderer/src/native/feuillet_core.wasm')\"",
     "pretest:e2e": "node node_modules/electron/install.js",
     "test:mobile": "npm run build:web && node tests/e2e/mobile.cjs . test-results/mobile"
@@ -35,6 +35,7 @@
     "fabric": "^7.4.0",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.2",
+    "lucide": "^1.48.0",
     "mammoth": "^1.13.0",
     "pdf-lib": "^1.17.1",
     "perfect-freehand": "^1.2.3",

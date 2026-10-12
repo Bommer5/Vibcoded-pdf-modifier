@@ -1,4 +1,4 @@
-import { StaticCanvas, type FabricObject } from 'fabric'
+import { StaticCanvas, util, type FabricObject } from 'fabric'
 import type { PDFDocument, PDFEmbeddedPage, PDFImage, PDFPage } from 'pdf-lib'
 import { assets, toDataUrl } from '../core/assets'
 import type { Page } from '../core/document'
@@ -258,6 +258,11 @@ export class Exporter {
       // Feuillet rouvre tout (calques, traits, textes) entièrement modifiable.
       // Le PDF d'origine n'est pas joint : il est dans ce fichier même (voir hybrid.ts).
       const sources = new Set(pages.flatMap((p) => (p.bg.kind === 'pdf' ? [p.bg.assetId] : [])))
+      // Un PDF aussi utilisé comme image (page insérée) doit rester joint au projet.
+      for (const o of this.ed.doc.content) {
+        const ref = (o as { pdfPage?: { assetId: string } }).pdfPage
+        if (ref) sources.delete(ref.assetId)
+      }
       const project = await saveProject(
         this.ed.canvas,
         { layers: this.ed.layers?.list, selfSource: Object.fromEntries(outerIndex) },
@@ -304,9 +309,11 @@ export class Exporter {
     const objects = this.ed.doc.contentOn(page)
     const display = displayMatrix(at)
     // Paquets : [formes…], texte, [formes…], texte…  (le fond papier va avec le premier paquet)
-    const chunks: { text?: FabricObject; shapes?: FabricObject[] }[] = []
+    const chunks: { text?: FabricObject; shapes?: FabricObject[]; pdfPage?: FabricObject }[] = []
     for (const o of objects) {
-      if (hasRealText(o) && !(o as { markup?: unknown }).markup) {
+      // Page de PDF insérée comme image : réintégrée telle quelle, en vectoriel.
+      if ((o as { pdfPage?: unknown }).pdfPage) chunks.push({ pdfPage: o })
+      else if (hasRealText(o) && !(o as { markup?: unknown }).markup) {
         // Le cadre d'un tableau reste vectoriel ; seul son texte est écrit avec les polices.
         if (o instanceof Table) chunks.push({ shapes: [o] })
         chunks.push({ text: o })
@@ -321,6 +328,12 @@ export class Exporter {
         first = false
         if (!chunk.shapes.length && bg === 'none') continue
         await this.drawShapes(out, target, page, at, bg, chunk.shapes, pdfLib)
+      } else if (chunk.pdfPage) {
+        const ok = await this.drawPdfPage(out, target, page, chunk.pdfPage, display, pdfLib).catch((e) => {
+          console.warn('Page PDF vectorielle impossible', e)
+          return false
+        })
+        if (!ok) await this.drawShapes(out, target, page, at, 'none', [chunk.pdfPage], pdfLib, true)
       } else if (chunk.text) {
         const ok = await drawTextObject(pdfLib, fonts, target, chunk.text, page, display).catch((e) => {
           console.warn('Texte vectoriel impossible', e)
@@ -330,6 +343,39 @@ export class Exporter {
         if (!ok) await this.drawShapes(out, target, page, at, 'none', [chunk.text], pdfLib, true)
       }
     }
+  }
+
+  /**
+   * Dessine une page de PDF insérée comme image, en vectoriel : la page d'origine est
+   * intégrée comme formulaire PDF et placée avec la même transformation qu'à l'écran
+   * (position, taille, rotation, miroir).
+   */
+  private async drawPdfPage(out: PDFDocument, target: PDFPage, page: Page, o: FabricObject, display: number[], pdfLib: typeof import('pdf-lib')): Promise<boolean> {
+    const ref = (o as { pdfPage?: { assetId: string; index: number } }).pdfPage!
+    const bytes = assets.get(ref.assetId)?.bytes
+    // Transparence : rendu en image (le formulaire PDF n'en porte pas).
+    if (!bytes || o.opacity < 1) return false
+    const src = await pdfLib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false })
+    const srcPage = src.getPage(ref.index)
+    // Page tournée (/Rotate) : l'image affichée est déjà juste, on la garde.
+    if (srcPage.getRotation().angle % 360 !== 0) return false
+    const crop = srcPage.getCropBox()
+    const embedded = await out.embedPage(srcPage, { left: crop.x, bottom: crop.y, right: crop.x + crop.width, top: crop.y + crop.height })
+    const w = (o as FabricObject & { width: number }).width
+    const h = (o as FabricObject & { height: number }).height
+    // (u, v) de la page d'origine (v vers le haut) → repère local de l'image (centré, y vers le bas).
+    const local = [w / embedded.width, 0, 0, -h / embedded.height, -w / 2, h / 2]
+    const scene = util.multiplyTransformMatrices(o.calcTransformMatrix(), local as never)
+    const onPage = util.multiplyTransformMatrices([1, 0, 0, 1, -page.left, -page.top] as never, scene)
+    const m = util.multiplyTransformMatrices(display as never, onPage)
+    const name = target.node.newXObject('FeuilletPdf', embedded.ref)
+    target.pushOperators(
+      pdfLib.pushGraphicsState(),
+      pdfLib.concatTransformationMatrix(m[0], m[1], m[2], m[3], m[4], m[5]),
+      pdfLib.drawObject(name),
+      pdfLib.popGraphicsState()
+    )
+    return true
   }
 
   private async drawShapes(

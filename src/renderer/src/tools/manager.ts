@@ -15,6 +15,15 @@ export type Tool = 'select' | 'lasso' | 'textselect' | 'edittext' | 'pen' | 'hig
 /** Tenir le stylet immobile ce temps (ms) en fin de trait le transforme en ligne droite. */
 const HOLD_TO_STRAIGHTEN_MS = 650
 const DRAW_TOOLS: Tool[] = ['pen', 'highlighter', 'eraser', 'shape', 'textselect']
+/**
+ * Outils qui dessinent mais laissent saisir l'objet sélectionné : appuyer dedans le déplace
+ * au lieu de tracer (Ctrl + appui saisit n'importe quel objet). Un simple toucher sur une
+ * image, un texte, une forme… la sélectionne (« sélection universelle » de GoodNotes).
+ */
+const GRAB_TOOLS: Tool[] = ['pen', 'highlighter', 'shape']
+/** Un appui plus court et plus immobile que ça est un « toucher » (pas un trait). */
+const TAP_MS = 300
+const TAP_PX = 4
 
 interface Stroke {
   tool: 'pen' | 'highlighter' | 'eraser' | 'shape' | 'text' | 'textselect' | 'lasso'
@@ -25,6 +34,8 @@ interface Stroke {
   straight: boolean
   holdTimer?: number
   lastMove: Point
+  /** Début du geste (performance.now), pour reconnaître un simple toucher. */
+  t0?: number
 }
 
 /**
@@ -44,6 +55,15 @@ export class ToolManager {
 
   constructor(private ed: Editor) {
     const c = ed.canvas
+    // Avec un outil de dessin, seul l'objet sélectionné peut être saisi (ou tout objet avec Ctrl).
+    const find = c.findTarget.bind(c)
+    c.findTarget = ((e: PointerEvent) => {
+      const info = find(e)
+      if (!GRAB_TOOLS.includes(this.tool) || !info.target) return info
+      const t = info.target
+      const grab = !isPageLayer(t) && (t === c.getActiveObject() || e.ctrlKey || e.metaKey)
+      return grab ? info : { ...info, target: undefined, subTargets: [] }
+    }) as typeof c.findTarget
     c.on('mouse:down', (o) => this.down(o))
     c.on('mouse:move', (o) => this.move(o))
     c.on('mouse:up', () => this.up())
@@ -75,7 +95,7 @@ export class ToolManager {
     this.tool = tool
     c.isDrawingMode = false
     c.selection = tool === 'select'
-    c.skipTargetFind = DRAW_TOOLS.includes(tool) || tool === 'table' || tool === 'edittext'
+    c.skipTargetFind = (DRAW_TOOLS.includes(tool) && !GRAB_TOOLS.includes(tool)) || tool === 'table' || tool === 'edittext'
     this.ed.viewport.setHandTool(tool === 'hand')
     if (tool !== 'select' && tool !== 'text') c.discardActiveObject()
     // Les objets restent sélectionnables avec l'outil Sélection, et les textes avec l'outil Texte.
@@ -99,8 +119,14 @@ export class ToolManager {
   private down(o: TPointerEventInfo): void {
     const e = o.e as PointerEvent
     if (e.pointerType === 'touch' && this.penSeen) return
-    if ('button' in e && e.button !== 0 && e.button !== 5) return
     const p = o.scenePoint
+    // Bouton latéral du stylet maintenu : lasso le temps du geste, quel que soit l'outil (comme Whiteboard).
+    if (e.pointerType === 'pen' && ((e.buttons ?? 0) & 2) !== 0 && this.tool !== 'hand') {
+      this.ed.canvas.discardActiveObject()
+      this.stroke = { tool: 'lasso', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
+      return
+    }
+    if ('button' in e && e.button !== 0 && e.button !== 5) return
 
     if (this.tool === 'text') {
       if (o.target && 'text' in o.target) return // clic dans un texte existant : édition normale
@@ -133,8 +159,10 @@ export class ToolManager {
     const eraserTip = e.button === 5 || ((e.buttons ?? 0) & 32) !== 0
     const tool = eraserTip && this.tool !== 'select' && this.tool !== 'hand' ? 'eraser' : this.tool
     if (tool !== 'pen' && tool !== 'highlighter' && tool !== 'eraser' && tool !== 'shape') return
+    // Appui sur l'objet sélectionné (ou Ctrl + appui) : Fabric le déplace, on ne trace rien.
+    if (o.target && tool !== 'eraser') return
 
-    this.stroke = { tool, points: [[p.x, p.y, pressureOf(e)]], start: p, straight: false, lastMove: p }
+    this.stroke = { tool, points: [[p.x, p.y, pressureOf(e)]], start: p, straight: false, lastMove: p, t0: performance.now() }
     if (tool === 'eraser') {
       this.ed.history.begin()
       this.erase(p)
@@ -184,6 +212,15 @@ export class ToolManager {
     if (s.tool === 'text') return this.createText(s)
     if (s.tool === 'lasso') return this.finishLasso(s)
     if (s.tool === 'textselect') return this.textSelection?.end()
+    // Simple toucher sur une image, un texte, une forme, un tableau… : on le sélectionne.
+    if (this.isTap(s)) {
+      const hit = this.objectAt(s.start)
+      if (hit) {
+        this.ed.canvas.setActiveObject(hit)
+        this.ed.canvas.requestRenderAll()
+        return
+      }
+    }
     const pts = this.finalPoints(s)
     if (s.recognized && s.tool === 'pen') {
       const shape = this.shapeFromRecognized(s.recognized)
@@ -194,7 +231,12 @@ export class ToolManager {
     }
     if (s.tool === 'shape') {
       const obj = this.buildShape(settings.value.shape, s.start, new Point(pts.at(-1)![0], pts.at(-1)![1]))
-      if (obj) this.ed.add(obj)
+      if (obj) {
+        this.ed.add(obj)
+        // La forme reste sélectionnée : on peut tout de suite la déplacer ou la redimensionner.
+        this.ed.canvas.setActiveObject(obj)
+        this.ed.canvas.requestRenderAll()
+      }
       return
     }
     const v = settings.value
@@ -228,6 +270,23 @@ export class ToolManager {
       style: tool === 'pen' ? v.penStyle : 'solid',
       pressure: tool === 'pen' && v.pressure
     })
+  }
+
+  private isTap(s: Stroke): boolean {
+    if (s.t0 === undefined || performance.now() - s.t0 > TAP_MS) return false
+    const z = this.ed.viewport.zoom
+    return s.points.every(([x, y]) => Math.hypot(x - s.start.x, y - s.start.y) * z <= TAP_PX)
+  }
+
+  /** Objet (hors traits à main levée et fonds de page) sous un point, du dessus vers le dessous. */
+  private objectAt(p: Point): FabricObject | null {
+    const objects = this.ed.canvas.getObjects()
+    for (let i = objects.length - 1; i >= 0; i--) {
+      const o = objects[i]
+      if (isPageLayer(o) || (o as InkObject).ink || !o.visible || !o.selectable || !o.evented) continue
+      if (o.containsPoint(p)) return o
+    }
+    return null
   }
 
   /** Maintenir Maj, ou garder le stylet immobile en fin de trait = ligne droite. */
