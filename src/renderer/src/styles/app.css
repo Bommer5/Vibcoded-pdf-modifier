@@ -1,0 +1,35 @@
+:root {
+  --bg: #1e1f24;
+  --panel: #26272d;
+  --panel-border: #33343b;
+  --text: #e6e6ea;
+  --muted: #9a9ba3;
+  --accent: #4f8cff;
+  --workspace: #3a3b42;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; user-select: none; }
+#app {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  grid-template-rows: 40px 1fr 24px;
+  grid-template-areas: 'top top' 'tools work' 'status status';
+  height: 100%;
+}
+.topbar { grid-area: top; display: flex; align-items: center; gap: 6px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--panel-border); }
+.brand { font-weight: 600; margin-right: 12px; }
+.spacer { flex: 1; }
+.muted { color: var(--muted); }
+.toolbar { grid-area: tools; display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--panel); border-right: 1px solid var(--panel-border); }
+.workspace { grid-area: work; position: relative; overflow: hidden; background: var(--workspace); touch-action: none; }
+.workspace.panning { cursor: grab; }
+.workspace.panning.dragging { cursor: grabbing; }
+.statusbar { grid-area: status; display: flex; align-items: center; padding: 0 10px; background: var(--panel); border-top: 1px solid var(--panel-border); color: var(--muted); font-size: 12px; }
+button { background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 6px; padding: 4px 8px; cursor: pointer; font: inherit; }
+button:hover { background: #ffffff12; }
+.toolbar button { width: 36px; height: 36px; font-size: 16px; padding: 0; }
+.toolbar button.active { background: var(--accent); color: #fff; }
+kbd { background: #ffffff14; border-radius: 4px; padding: 0 4px; font-family: inherit; }

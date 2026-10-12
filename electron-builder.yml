@@ -1,0 +1,20 @@
+appId: app.feuillet.editor
+productName: Feuillet
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+fileAssociations:
+  - ext: pdf
+    name: PDF Document
+    role: Editor
+linux:
+  target: [AppImage, deb]
+  category: Graphics
+win:
+  target: [nsis, portable]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

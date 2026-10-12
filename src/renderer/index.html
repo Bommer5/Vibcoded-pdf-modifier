@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+    />
+    <title>Feuillet</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <span class="brand">Feuillet</span>
+        <button data-action="new-a4" title="Nouvelle page A4 (Ctrl+N)">Nouveau A4</button>
+        <button data-action="undo" title="Annuler (Ctrl+Z)">↶</button>
+        <button data-action="redo" title="Rétablir (Ctrl+Maj+Z / Ctrl+Y)">↷</button>
+        <span class="spacer"></span>
+        <span id="pointer-info" class="muted"></span>
+        <span id="zoom-label" class="muted">100 %</span>
+      </header>
+      <aside class="toolbar" id="toolbar">
+        <button data-tool="select" title="Sélection (V)">⬚</button>
+        <button data-tool="pen" title="Stylo (P)">✎</button>
+        <button data-tool="hand" title="Main (H, ou maintenir Espace)">✋</button>
+      </aside>
+      <main class="workspace" id="workspace">
+        <canvas id="stage"></canvas>
+      </main>
+      <footer class="statusbar">
+        <span>Zoom : <kbd id="key-zoom-in"></kbd> / <kbd id="key-zoom-out"></kbd> (sur le pointeur) · Ctrl+molette · Espace = déplacer</span>
+      </footer>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
