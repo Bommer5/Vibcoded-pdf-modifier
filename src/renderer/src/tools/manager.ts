@@ -1,19 +1,25 @@
-import { Ellipse, Path, Point, Rect, Textbox, Triangle, type FabricObject, type TPointerEventInfo } from 'fabric'
+import { ActiveSelection, Ellipse, Path, Point, Rect, Textbox, Triangle, type FabricObject, type TPointerEventInfo } from 'fabric'
 import type { Editor } from '../core/editor'
 import { isPageLayer } from '../core/props'
 import { ShapedText } from '../objects/shaped-text'
 import { Table } from '../objects/table'
-import { buildInk, eraseInk, nearObject, type InkObject, type InkPoint } from './ink'
+import { buildMarkup } from '../pdf/text'
+import { editTextAt } from '../pdf/edit-text'
+import { hasNative, nativeCountInside, nativeRecognize, type Recognized } from '../native/core'
+import type { TextSelection } from '../ui/text-selection'
+import { buildInk, eraseInk, nearObject, scenePoints, type InkObject, type InkPoint } from './ink'
 import { dashArray, settings, type ShapeKind } from './settings'
 
-export type Tool = 'select' | 'pen' | 'highlighter' | 'eraser' | 'shape' | 'text' | 'table' | 'hand'
+export type Tool = 'select' | 'lasso' | 'textselect' | 'edittext' | 'pen' | 'highlighter' | 'eraser' | 'shape' | 'text' | 'table' | 'hand'
 
 /** Tenir le stylet immobile ce temps (ms) en fin de trait le transforme en ligne droite. */
 const HOLD_TO_STRAIGHTEN_MS = 650
-const DRAW_TOOLS: Tool[] = ['pen', 'highlighter', 'eraser', 'shape']
+const DRAW_TOOLS: Tool[] = ['pen', 'highlighter', 'eraser', 'shape', 'textselect']
 
 interface Stroke {
-  tool: 'pen' | 'highlighter' | 'eraser' | 'shape' | 'text'
+  tool: 'pen' | 'highlighter' | 'eraser' | 'shape' | 'text' | 'textselect' | 'lasso'
+  /** Forme reconnue en tenant le stylet immobile (rond, rectangle…). */
+  recognized?: Recognized | null
   points: InkPoint[]
   start: Point
   straight: boolean
@@ -32,6 +38,9 @@ export class ToolManager {
   private shiftHeld = false
   private penSeen = false
   private listeners = new Set<(t: Tool) => void>()
+
+  /** Branché par l'application : sélection du texte des PDF et aimantation du surligneur. */
+  textSelection: TextSelection | null = null
 
   constructor(private ed: Editor) {
     const c = ed.canvas
@@ -66,7 +75,7 @@ export class ToolManager {
     this.tool = tool
     c.isDrawingMode = false
     c.selection = tool === 'select'
-    c.skipTargetFind = DRAW_TOOLS.includes(tool) || tool === 'table'
+    c.skipTargetFind = DRAW_TOOLS.includes(tool) || tool === 'table' || tool === 'edittext'
     this.ed.viewport.setHandTool(tool === 'hand')
     if (tool !== 'select' && tool !== 'text') c.discardActiveObject()
     // Les objets restent sélectionnables avec l'outil Sélection, et les textes avec l'outil Texte.
@@ -79,7 +88,7 @@ export class ToolManager {
   private applyCursor(): void {
     const c = this.ed.canvas
     const cursor =
-      this.tool === 'text' ? 'text' : DRAW_TOOLS.includes(this.tool) || this.tool === 'table' ? 'crosshair' : 'default'
+      this.tool === 'text' || this.tool === 'textselect' || this.tool === 'edittext' ? 'text' : DRAW_TOOLS.includes(this.tool) || this.tool === 'lasso' || this.tool === 'table' ? 'crosshair' : 'default'
     c.defaultCursor = cursor
     if (this.tool !== 'select') c.hoverCursor = this.tool === 'text' ? 'text' : cursor
     else c.hoverCursor = 'move'
@@ -99,6 +108,26 @@ export class ToolManager {
       return
     }
     if (this.tool === 'table') return this.createTable(p)
+    if (this.tool === 'edittext') {
+      void editTextAt(this.ed, p).then((box) => {
+        if (box) this.set('select')
+        else this.ed.notify('Cliquez sur un texte du PDF pour le modifier', 'info')
+      })
+      return
+    }
+    if (this.tool === 'lasso') {
+      // Appui dans la sélection en cours : on la déplace (comportement normal de Fabric).
+      if (o.target && this.ed.canvas.getActiveObjects().includes(o.target)) return
+      if (o.target && this.ed.canvas.getActiveObject() === o.target) return
+      this.ed.canvas.discardActiveObject()
+      this.stroke = { tool: 'lasso', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
+      return
+    }
+    if (this.tool === 'textselect') {
+      this.stroke = { tool: 'textselect', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
+      void this.textSelection?.begin(p)
+      return
+    }
 
     // Bout gomme du stylet (ou bouton 5) : gomme le temps du geste, quel que soit l'outil.
     const eraserTip = e.button === 5 || ((e.buttons ?? 0) & 32) !== 0
@@ -118,9 +147,14 @@ export class ToolManager {
     const e = o.e as PointerEvent
     if (!this.stroke) {
       if (this.tool === 'eraser') this.drawEraserCursor(o.scenePoint)
+      else if ((this.tool === 'pen' || this.tool === 'highlighter') && (e as PointerEvent).pointerType !== 'touch') this.drawSizeCursor(o.scenePoint)
       return
     }
     const s = this.stroke
+    if (s.tool === 'textselect') {
+      this.textSelection?.update(o.scenePoint)
+      return
+    }
     const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
     const samples = events.length ? events : [e]
     for (const ev of samples) {
@@ -148,13 +182,31 @@ export class ToolManager {
       return
     }
     if (s.tool === 'text') return this.createText(s)
+    if (s.tool === 'lasso') return this.finishLasso(s)
+    if (s.tool === 'textselect') return this.textSelection?.end()
     const pts = this.finalPoints(s)
+    if (s.recognized && s.tool === 'pen') {
+      const shape = this.shapeFromRecognized(s.recognized)
+      if (shape) {
+        this.ed.add(shape)
+        return
+      }
+    }
     if (s.tool === 'shape') {
       const obj = this.buildShape(settings.value.shape, s.start, new Point(pts.at(-1)![0], pts.at(-1)![1]))
       if (obj) this.ed.add(obj)
       return
     }
     const v = settings.value
+    // Surligneur sur le texte d'un PDF : aimanté aux lignes de texte (si activé).
+    if (s.tool === 'highlighter' && v.highlightSnap && this.textSelection && !this.shiftHeld) {
+      const page = this.ed.doc.pageAt(s.start)
+      void this.textSelection.snapStroke(pts.map(([x, y]) => [x, y]), page).then((words) => {
+        const snapped = words?.length ? buildMarkup(words, 'highlight', v.highlighterColor) : null
+        this.ed.add(snapped ?? this.inkFor(s.tool as 'highlighter', pts))
+      })
+      return
+    }
     const ink = buildInk({
       tool: s.tool,
       points: pts,
@@ -164,6 +216,18 @@ export class ToolManager {
       pressure: s.tool === 'pen' && v.pressure
     })
     this.ed.add(ink)
+  }
+
+  private inkFor(tool: 'pen' | 'highlighter', pts: InkPoint[]): InkObject {
+    const v = settings.value
+    return buildInk({
+      tool,
+      points: pts,
+      size: tool === 'pen' ? v.penWidth : v.highlighterWidth,
+      color: tool === 'pen' ? v.penColor : v.highlighterColor,
+      style: tool === 'pen' ? v.penStyle : 'solid',
+      pressure: tool === 'pen' && v.pressure
+    })
   }
 
   /** Maintenir Maj, ou garder le stylet immobile en fin de trait = ligne droite. */
@@ -179,12 +243,21 @@ export class ToolManager {
 
   private armHold(): void {
     const s = this.stroke
-    if (!s || s.tool === 'eraser' || s.tool === 'shape' || s.tool === 'text') return
+    if (!s || s.tool === 'eraser' || s.tool === 'shape' || s.tool === 'text' || s.tool === 'textselect' || s.tool === 'lasso') return
     window.clearTimeout(s.holdTimer)
     s.holdTimer = window.setTimeout(() => {
       if (this.stroke !== s || s.points.length < 4) return
       const [x0, y0] = s.points[0]
       const [x1, y1] = s.points.at(-1)!
+      // Forme fermée (rond, rectangle, triangle) : reconnue par le noyau natif.
+      if (s.tool === 'pen' && settings.value.shapeRecognition && hasNative()) {
+        const r = nativeRecognize(new Float32Array(s.points.flat()), 3)
+        if (r && r.kind !== 'line') {
+          s.recognized = r
+          this.preview()
+          return
+        }
+      }
       if (Math.hypot(x1 - x0, y1 - y0) * this.ed.viewport.zoom < 30) return
       s.straight = true
       this.preview()
@@ -212,10 +285,22 @@ export class ToolManager {
 
   private preview(): void {
     const s = this.stroke
-    if (!s || s.tool === 'eraser') return
+    if (!s || s.tool === 'eraser' || s.tool === 'textselect') return
     if (s.tool === 'text') return this.previewText(s)
+    if (s.tool === 'lasso') return this.previewLasso(s)
+    if (s.recognized) {
+      const shape = this.shapeFromRecognized(s.recognized)
+      if (shape) return this.withTop((ctx) => shape.render(ctx))
+    }
     const v = settings.value
     const pts = this.finalPoints(s)
+    if (s.recognized && s.tool === 'pen') {
+      const shape = this.shapeFromRecognized(s.recognized)
+      if (shape) {
+        this.ed.add(shape)
+        return
+      }
+    }
     if (s.tool === 'shape') {
       const obj = this.buildShape(v.shape, s.start, new Point(pts.at(-1)![0], pts.at(-1)![1]))
       this.withTop((ctx) => obj?.render(ctx))
@@ -244,6 +329,79 @@ export class ToolManager {
       ctx.fill()
       ctx.stroke()
     })
+  }
+
+  private drawSizeCursor(at: Point): void {
+    const v = settings.value
+    const size = this.tool === 'pen' ? v.penWidth : v.highlighterWidth
+    const color = this.tool === 'pen' ? v.penColor : v.highlighterColor
+    this.withTop((ctx) => {
+      ctx.beginPath()
+      ctx.arc(at.x, at.y, Math.max(size / 2, 0.6 / this.ed.viewport.zoom), 0, Math.PI * 2)
+      ctx.fillStyle = color
+      ctx.globalAlpha = this.tool === 'highlighter' ? 0.4 : 0.85
+      ctx.fill()
+      ctx.globalAlpha = 1
+      ctx.lineWidth = 1 / this.ed.viewport.zoom
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+      ctx.stroke()
+    })
+  }
+
+  // --- Lasso -----------------------------------------------------------------------
+
+  private previewLasso(s: Stroke): void {
+    const zoom = this.ed.viewport.zoom
+    this.withTop((ctx) => {
+      ctx.setLineDash([5 / zoom, 4 / zoom])
+      ctx.lineWidth = 1.5 / zoom
+      ctx.strokeStyle = '#4f8cff'
+      ctx.fillStyle = 'rgba(79,140,255,0.08)'
+      ctx.beginPath()
+      s.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+    })
+  }
+
+  /** Sélectionne les objets entourés (au moins la moitié de leurs points dans la boucle). */
+  private finishLasso(s: Stroke): void {
+    if (s.points.length < 3) return
+    const poly = new Float32Array(s.points.flatMap(([x, y]) => [x, y]))
+    const inside = (pts: number[][]): number => {
+      if (hasNative()) return nativeCountInside(poly, new Float32Array(pts.flatMap(([x, y]) => [x, y])), 2)
+      return pts.filter(([x, y]) => pointInPolygon(x, y, s.points)).length
+    }
+    const picked = this.ed.doc.content.filter((o) => {
+      if (!o.selectable || !o.visible) return false
+      const ink = (o as InkObject).ink
+      let samples: number[][]
+      if (ink) {
+        const all = scenePoints(o as InkObject)
+        const step = Math.max(1, Math.floor(all.length / 64))
+        samples = all.filter((_, i) => i % step === 0)
+      } else {
+        const r = o.getBoundingRect()
+        samples = [[r.left, r.top], [r.left + r.width, r.top], [r.left, r.top + r.height], [r.left + r.width, r.top + r.height], [r.left + r.width / 2, r.top + r.height / 2]]
+      }
+      return inside(samples) >= samples.length * 0.5
+    })
+    if (!picked.length) return
+    this.ed.canvas.setActiveObject(picked.length === 1 ? picked[0] : new ActiveSelection(picked, { canvas: this.ed.canvas }))
+    this.ed.canvas.requestRenderAll()
+  }
+
+  private shapeFromRecognized(r: Recognized): FabricObject | null {
+    const v = settings.value
+    const common = { stroke: v.penColor, strokeWidth: v.penWidth, fill: '', strokeUniform: true, strokeLineJoin: 'round' as const, strokeDashArray: dashArray(v.penStyle, v.penWidth) }
+    let obj: FabricObject
+    if (r.kind === 'ellipse') obj = new Ellipse({ left: r.cx - r.rx, top: r.cy - r.ry, rx: r.rx, ry: r.ry, ...common })
+    else if (r.kind === 'rect') obj = new Rect({ left: r.left, top: r.top, width: r.width, height: r.height, ...common })
+    else if (r.kind === 'polygon') obj = new Path(`M ${r.points.map((p) => p.join(' ')).join(' L ')} Z`, common)
+    else return null
+    obj.set({ shape: r.kind } as never)
+    return obj
   }
 
   // --- Gomme ---------------------------------------------------------------------------
@@ -403,6 +561,16 @@ export class ToolManager {
     this.ed.canvas.setActiveObject(table)
     this.ed.canvas.requestRenderAll()
   }
+}
+
+function pointInPolygon(x: number, y: number, poly: InkPoint[]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
 }
 
 function pathLength(pts: InkPoint[]): number {

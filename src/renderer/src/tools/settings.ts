@@ -11,6 +11,14 @@ export interface ToolSettings {
   pressure: boolean
   highlighterColor: string
   highlighterWidth: number
+  /** Rond / rectangle / triangle dessinés à main levée rendus parfaits en tenant le stylet immobile. */
+  shapeRecognition: boolean
+  /** Style des nouvelles pages (« + Page »). */
+  paper: import('../core/paper').PaperStyle
+  /** Couleurs favorites (barre rapide). */
+  favorites: string[]
+  /** Surligneur aimanté aux lignes de texte des PDF. */
+  highlightSnap: boolean
   eraserSize: number
   eraserMode: EraserMode
   shape: ShapeKind
@@ -32,6 +40,10 @@ const DEFAULTS: ToolSettings = {
   pressure: true,
   highlighterColor: '#ffe600',
   highlighterWidth: 14,
+  highlightSnap: true,
+  shapeRecognition: true,
+  paper: 'plain',
+  favorites: ['#1b1b1f', '#e5484d', '#0090ff', '#30a46c', '#f76b15', '#8e4ec6'],
   eraserSize: 16,
   eraserMode: 'partial',
   shape: 'rect',

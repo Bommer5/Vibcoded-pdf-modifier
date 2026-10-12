@@ -84,6 +84,7 @@ export class Importer {
 
   private async replaceWith(files: OpenedFile[]): Promise<void> {
     this.ed.doc.clear()
+    this.ed.layers?.reset()
     pageRenderer.clear()
     await pdfEngine.closeAll()
     pdfEngine.forgetText()
@@ -91,7 +92,8 @@ export class Importer {
     for (const file of files) {
       if (kindOf(file.name) === 'project') {
         if (files.length > 1) throw new Error('Ouvrez un projet .feuillet seul')
-        await loadProject(this.ed.canvas, file.data)
+        const scene = await loadProject(this.ed.canvas, file.data)
+        this.ed.layers?.load(scene.layers as never)
       } else {
         await this.appendDocument(file)
       }
@@ -175,9 +177,12 @@ export class Importer {
         return this.appendPdf(file.data, file.name, after)
       case 'office':
         return this.appendOffice(file, after)
-      case 'xournal':
+      case 'xournal': {
         if (after) throw new Error('Un carnet Xournal s’ouvre comme nouveau document (Ouvrir)')
-        return importXournal(file.data, file.path, doc, (o) => this.ed.add(o))
+        const pages = await importXournal(file.data, file.path, doc, (o) => this.ed.add(o))
+        this.ed.layers?.load(undefined) // calques recréés d'après le carnet
+        return pages
+      }
       case 'text':
         return importTextAsPages(decodeText(file.data), doc, (o) => this.ed.add(o))
       case 'image': {

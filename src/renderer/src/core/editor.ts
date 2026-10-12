@@ -1,6 +1,7 @@
 import type { Canvas, FabricObject, Point } from 'fabric'
 import type { DocumentModel } from './document'
 import type { History } from './history'
+import type { Layers } from './layers'
 import type { Viewport } from './viewport'
 
 export type NoticeKind = 'info' | 'success' | 'error'
@@ -11,6 +12,7 @@ export interface Editor {
   doc: DocumentModel
   history: History
   viewport: Viewport
+  layers?: Layers
   notify(message: string, kind?: NoticeKind): void
   /** Ajoute un objet de contenu au-dessus des pages. */
   add(obj: FabricObject): void

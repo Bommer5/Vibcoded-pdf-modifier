@@ -29,7 +29,7 @@ function walk(objects: JsonObject[] | undefined, fn: (o: JsonObject) => void): v
   }
 }
 
-export async function saveProject(canvas: Canvas): Promise<Uint8Array> {
+export async function saveProject(canvas: Canvas, extra: Record<string, unknown> = {}): Promise<Uint8Array> {
   const { default: JSZip } = await import('jszip')
   const scene = canvas.toObject() as JsonObject
   const used = new Set<string>()
@@ -47,11 +47,11 @@ export async function saveProject(canvas: Canvas): Promise<Uint8Array> {
     zip.file(`assets/${id}`, asset.bytes, { compression: 'STORE' })
   }
   zip.file('manifest.json', JSON.stringify(manifest, null, 2))
-  zip.file('document.json', JSON.stringify(scene))
+  zip.file('document.json', JSON.stringify({ ...scene, ...extra }))
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
 }
 
-export async function loadProject(canvas: Canvas, data: Uint8Array): Promise<void> {
+export async function loadProject(canvas: Canvas, data: Uint8Array): Promise<Record<string, unknown>> {
   const { default: JSZip } = await import('jszip')
   const zip = await JSZip.loadAsync(data)
   const manifest = JSON.parse((await zip.file('manifest.json')?.async('string')) ?? 'null') as Manifest | null
@@ -68,6 +68,7 @@ export async function loadProject(canvas: Canvas, data: Uint8Array): Promise<voi
   })
   await canvas.loadFromJSON(scene)
   canvas.requestRenderAll()
+  return scene
 }
 
 /**

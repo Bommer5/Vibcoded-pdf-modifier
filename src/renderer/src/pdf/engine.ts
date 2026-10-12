@@ -1,4 +1,4 @@
-import type { PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
+import type { PdfFontInfo, PdfMask, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
 
 /**
  * Accès au moteur PDF natif (PDFium/WASM dans un worker). Les requêtes de rendu
@@ -55,8 +55,17 @@ class PdfEngine {
     await Promise.all([...this.opened.keys()].map((d) => this.close(d)))
   }
 
-  async render(doc: string, page: number, width: number, height: number): Promise<ImageBitmap> {
-    return (await this.call({ op: 'render', doc, page, width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) })).bitmap!
+  async render(doc: string, page: number, width: number, height: number, masks?: PdfMask[]): Promise<ImageBitmap> {
+    return (await this.call({ op: 'render', doc, page, width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)), masks })).bitmap!
+  }
+
+  async fontInfo(doc: string, page: number, x: number, y: number): Promise<PdfFontInfo | null> {
+    return (await this.call({ op: 'fontinfo', doc, page, x, y })).font ?? null
+  }
+
+  /** PDF dont le texte des zones masquées est réellement supprimé. */
+  async redacted(doc: string, pages: { page: number; masks: PdfMask[] }[]): Promise<Uint8Array> {
+    return (await this.call({ op: 'redacted', doc, pages })).file!
   }
 
   private textCache = new Map<string, Promise<PdfWord[]>>()

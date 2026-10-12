@@ -71,6 +71,28 @@ export class Viewport {
     this.onZoom(clamped)
   }
 
+  /** Centre la vue sur un point du document (zoom inchangé). */
+  centerOn(p: Point): void {
+    const z = this.zoom
+    const v = this.canvas.viewportTransform
+    this.canvas.setViewportTransform([v[0], v[1], v[2], v[3], this.canvas.getWidth() / 2 - p.x * z, this.canvas.getHeight() / 2 - p.y * z])
+  }
+
+  /** Affiche le haut d'une page (zoom inchangé, centrée horizontalement). */
+  showRect(rect: { left: number; top: number; width: number; height: number }, margin = 20): void {
+    const z = this.zoom
+    const v = this.canvas.viewportTransform
+    this.canvas.setViewportTransform([v[0], v[1], v[2], v[3], this.canvas.getWidth() / 2 - (rect.left + rect.width / 2) * z, margin - rect.top * z])
+    this.onZoom(z)
+  }
+
+  /** Ajuste la largeur d'une zone à l'écran. */
+  fitWidth(rect: { left: number; top: number; width: number; height: number }, margin = 24): void {
+    const zoom = (this.canvas.getWidth() - margin * 2) / rect.width
+    this.canvas.setViewportTransform([zoom, 0, 0, zoom, margin - rect.left * zoom, this.canvas.viewportTransform[5]])
+    this.onZoom(zoom)
+  }
+
   /** Ajuste la vue pour que le rectangle (coordonnées document) tienne dans l'écran. */
   fit(rect: { left: number; top: number; width: number; height: number }, margin = 40): void {
     const w = this.canvas.getWidth()

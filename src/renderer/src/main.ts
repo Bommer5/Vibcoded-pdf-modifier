@@ -18,6 +18,15 @@ import { TableEditor } from './objects/table-editor'
 import { ToolManager, type Tool } from './tools/manager'
 import { MenuBar, type Menu } from './ui/menubar'
 import { PropertiesPanel } from './ui/properties'
+import { initOverlay } from './core/overlay'
+import { Layers } from './core/layers'
+import { FindBar } from './ui/find-bar'
+import { QuickBar } from './ui/quickbar'
+import { Sidebar } from './ui/sidebar'
+import { TextSelection } from './ui/text-selection'
+import { editTextAt } from './pdf/edit-text'
+import { PAPER_STYLES, type PaperStyle } from './core/paper'
+import type { Page } from './core/page'
 import { settings } from './tools/settings'
 import { pageRenderer } from './core/page-renderer'
 
@@ -55,7 +64,10 @@ function notify(message: string, kind: NoticeKind = 'info'): void {
 // --- Contexte d'édition ------------------------------------------------------
 
 const doc = new DocumentModel(canvas)
-const viewport = new Viewport(canvas, workspace, (z) => (zoomLabel.textContent = `${Math.round(z * 100)} %`))
+// 100 % = taille réelle (1 pt = 1/72 pouce affiché à 96 ppp).
+const REAL_SIZE = 96 / 72
+const viewport = new Viewport(canvas, workspace, (z) => (zoomLabel.textContent = `${Math.round((z / REAL_SIZE) * 100)} %`))
+initOverlay(canvas)
 await doc.addPage()
 const history = new History(canvas, () => refreshButtons())
 
@@ -68,6 +80,8 @@ const editor: Editor = {
   add: (obj: FabricObject) => canvas.add(obj),
   pointer: () => viewport.pointerScene()
 }
+const layers = new Layers(editor)
+editor.layers = layers
 const importer = new Importer(editor)
 const exporter = new Exporter(editor)
 const editing = new Editing(editor, importer)
@@ -80,6 +94,10 @@ new ResizeObserver(() => canvas.setDimensions({ width: workspace.clientWidth, he
 // --- Outils --------------------------------------------------------------------
 
 const tools = new ToolManager(editor)
+const textSelection = new TextSelection(editor)
+tools.textSelection = textSelection
+const findBar = new FindBar(editor)
+new QuickBar(tools)
 const tableEditor = new TableEditor(editor)
 const properties = new PropertiesPanel(editor, tools, tableEditor)
 
@@ -92,8 +110,12 @@ tools.onChange((tool) =>
 document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool as Tool)))
 setTool('select')
 
-// Double-clic sur un graphique : rééditer ses données.
-canvas.on('mouse:dblclick', ({ target }) => {
+// Double-clic sur un graphique : rééditer ses données ; sur le texte d'un PDF : le modifier.
+canvas.on('mouse:dblclick', ({ target, scenePoint }) => {
+  if (!target && tools.tool === 'select') {
+    void editTextAt(editor, scenePoint)
+    return
+  }
   if (target && isChart(target)) {
     canvas.setActiveObject(target)
     document.querySelector<HTMLButtonElement>('.properties button.primary')?.click()
@@ -129,6 +151,7 @@ const actions: Record<string, () => void | Promise<void>> = {
   new: async () => {
     if (!doc.isEmpty && history.canUndo && !confirm('Le document actuel sera fermé. Continuer ?')) return
     doc.clear()
+    layers.reset()
     await doc.addPage()
     history.reset()
     viewport.fit(doc.bounds())
@@ -148,9 +171,7 @@ const actions: Record<string, () => void | Promise<void>> = {
   export: () => exportDialog.open(docName()),
   undo: () => history.undo(),
   redo: () => history.redo(),
-  'add-page': async () => {
-    await history.transaction(() => doc.addPage(undefined, { after: doc.currentPage() }))
-  },
+  'add-page': () => addPageAfter(doc.currentPage()),
   'zoom-in': () => viewport.zoomIn(),
   'zoom-out': () => viewport.zoomOut(),
   'zoom-fit': () => viewport.fit(doc.box(doc.currentPage() ?? doc.pages[0])),
@@ -208,6 +229,61 @@ Object.assign(actions, {
   }
 })
 
+async function addPageAfter(page: Page | undefined, style: PaperStyle = settings.value.paper): Promise<void> {
+  const size = page ? { width: page.width, height: page.height } : undefined
+  const bg = style === 'plain' ? undefined : { kind: 'paper' as const, style, color: '#ffffff' }
+  const added = await history.transaction(() => doc.addPage(size, { after: page, bg }))
+  viewport.showRect(doc.box(added))
+}
+
+const sidebar = new Sidebar(editor, exporter, layers, (p) => addPageAfter(p))
+
+// --- Navigation entre les pages -----------------------------------------------------
+
+const pageInput = $<HTMLInputElement>('page-input')
+const pageCount = $('page-count')
+let navTimer = 0
+canvas.on('after:render', () => {
+  window.clearTimeout(navTimer)
+  navTimer = window.setTimeout(() => {
+    const pages = doc.pages
+    pageCount.textContent = String(pages.length)
+    pageInput.max = String(pages.length)
+    if (document.activeElement !== pageInput) pageInput.value = String(Math.max(1, pages.indexOf(doc.currentPage()!) + 1))
+  }, 120)
+})
+function goToPage(n: number): void {
+  const pages = doc.pages
+  const page = pages[Math.min(pages.length, Math.max(1, n)) - 1]
+  if (page) viewport.showRect(doc.box(page))
+}
+pageInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    goToPage(Number(pageInput.value))
+    pageInput.blur()
+  } else if (e.key === 'Escape') pageInput.blur()
+})
+const pageIndex = (): number => doc.pages.indexOf(doc.currentPage()!) + 1
+
+Object.assign(actions, {
+  find: () => findBar.open(),
+  goto: () => {
+    pageInput.focus()
+    pageInput.select()
+  },
+  'toggle-sidebar': () => sidebar.toggle(),
+  'page-next': () => goToPage(pageIndex() + 1),
+  'page-prev': () => goToPage(pageIndex() - 1),
+  'zoom-width': () => {
+    const page = doc.currentPage() ?? doc.pages[0]
+    const center = canvas.getVpCenter()
+    viewport.fitWidth(doc.box(page))
+    viewport.centerOn(new Point(page.left + page.width / 2, center.y))
+  },
+  'zoom-actual': () => viewport.zoomAt(REAL_SIZE, null)
+})
+for (const p of PAPER_STYLES) actions[`add-page:${p.id}`] = () => addPageAfter(doc.currentPage(), p.id)
+
 const run = (name: string) => (): void => {
   if (name.startsWith('tool:')) return setTool(name.slice(5) as Tool)
   void Promise.resolve(actions[name]?.()).then(refreshButtons)
@@ -247,7 +323,8 @@ const menus: Menu[] = [
     label: 'Insertion',
     items: [
       { label: 'Image, PDF ou document…', action: 'insert', shortcut: 'insert' },
-      { label: 'Page vierge', action: 'add-page' },
+      { label: 'Page (style par défaut)', action: 'add-page' },
+      ...PAPER_STYLES.map((p) => ({ label: `Page — ${p.label}`, action: `add-page:${p.id}` })),
       '-',
       { label: 'Zone de texte', action: 'tool:text', shortcut: 'tool.text', hint: 'Cliquez, glissez, ou entourez une zone à main levée' },
       { label: 'Tableau', action: 'tool:table' },
@@ -259,6 +336,9 @@ const menus: Menu[] = [
     label: 'Outils',
     items: [
       { label: 'Sélection', action: 'tool:select', shortcut: 'tool.select' },
+      { label: 'Lasso', action: 'tool:lasso', shortcut: 'tool.lasso' },
+      { label: 'Sélectionner le texte du PDF', action: 'tool:textselect', shortcut: 'tool.textselect' },
+      { label: 'Modifier le texte du PDF', action: 'tool:edittext', shortcut: 'tool.edittext', hint: 'Ou double-clic sur un texte du PDF' },
       { label: 'Stylo', action: 'tool:pen', shortcut: 'tool.pen' },
       { label: 'Surligneur', action: 'tool:highlighter', shortcut: 'tool.highlighter' },
       { label: 'Gomme', action: 'tool:eraser', shortcut: 'tool.eraser' },
@@ -272,7 +352,15 @@ const menus: Menu[] = [
     items: [
       { label: 'Zoom avant', action: 'zoom-in', shortcut: 'zoomIn' },
       { label: 'Zoom arrière', action: 'zoom-out', shortcut: 'zoomOut' },
-      { label: 'Ajuster à la page', action: 'zoom-fit', shortcut: 'zoomReset' }
+      { label: 'Ajuster à la page', action: 'zoom-fit', shortcut: 'zoomReset' },
+      { label: 'Ajuster à la largeur', action: 'zoom-width', shortcut: 'zoomWidth' },
+      { label: 'Taille réelle (100 %)', action: 'zoom-actual', shortcut: 'zoomActual' },
+      '-',
+      { label: 'Pages, sommaire et calques', action: 'toggle-sidebar', shortcut: 'sidebar' },
+      { label: 'Rechercher…', action: 'find', shortcut: 'find' },
+      { label: 'Aller à la page…', action: 'goto', shortcut: 'goto' },
+      { label: 'Page suivante', action: 'page-next', shortcut: 'pageNext' },
+      { label: 'Page précédente', action: 'page-prev', shortcut: 'pagePrev' }
     ]
   },
   { label: 'Aide', items: [{ label: 'Raccourcis clavier', action: 'shortcuts' }] }
@@ -304,7 +392,16 @@ for (const [dir, dx, dy] of [['left', -1, 0], ['right', 1, 0], ['up', 0, -1], ['
   shortcuts.on(`nudge.${dir}`, () => editing.nudge(dx, dy))
   shortcuts.on(`nudge.${dir}.big`, () => editing.nudge(dx * 10, dy * 10))
 }
-for (const tool of ['select', 'pen', 'highlighter', 'eraser', 'shape', 'text', 'hand'] as const) {
+shortcuts.on('find', run('find'))
+shortcuts.on('goto', run('goto'))
+shortcuts.on('sidebar', run('toggle-sidebar'))
+shortcuts.on('pageNext', run('page-next'))
+shortcuts.on('pagePrev', run('page-prev'))
+shortcuts.on('pageFirst', () => goToPage(1))
+shortcuts.on('pageLast', () => goToPage(doc.pages.length))
+shortcuts.on('zoomWidth', run('zoom-width'))
+shortcuts.on('zoomActual', run('zoom-actual'))
+for (const tool of ['select', 'lasso', 'textselect', 'edittext', 'pen', 'highlighter', 'eraser', 'shape', 'text', 'hand'] as const) {
   shortcuts.on(`tool.${tool}`, () => setTool(tool))
 }
 
@@ -342,4 +439,4 @@ const pending = await platform.pendingFiles()
 if (pending.length > 0) await importer.open(pending)
 
 // Accès pour les tests automatisés de bout en bout.
-Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS } })
+Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, layers, sidebar, findBar, textSelection, goToPage } })

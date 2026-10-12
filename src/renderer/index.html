@@ -12,6 +12,7 @@
   <body>
     <div id="app">
       <header class="topbar">
+        <button data-action="toggle-sidebar" class="icon-btn" title="Pages, sommaire et calques (F9)" aria-label="Panneau latéral">▤</button>
         <span class="brand">Feuillet</span>
         <nav class="menubar" id="menubar" aria-label="Menus"></nav>
         <span class="sep"></span>
@@ -20,15 +21,24 @@
         <span class="sep"></span>
         <button data-action="add-page" title="Ajouter une page A4 après la page actuelle">+ Page</button>
         <span class="spacer"></span>
+        <span class="page-nav" title="Aller à la page (Ctrl+G)">
+          Page <input id="page-input" type="number" min="1" value="1" aria-label="Numéro de page" /> / <span id="page-count">1</span>
+        </span>
+        <button data-action="find" class="icon-btn" title="Rechercher (Ctrl+F)" aria-label="Rechercher">🔍</button>
         <span id="pointer-info" class="muted"></span>
         <button data-action="toggle-props" class="mobile-only" title="Propriétés" aria-label="Propriétés">⚙</button>
         <button data-action="zoom-out" title="Zoom arrière" aria-label="Zoom arrière">−</button>
         <button data-action="zoom-fit" id="zoom-label" class="zoom-label" title="Ajuster à la page (Ctrl+0)">100 %</button>
         <button data-action="zoom-in" title="Zoom avant" aria-label="Zoom avant">+</button>
       </header>
+      <aside class="sidebar" id="sidebar" aria-label="Pages, sommaire et calques"></aside>
       <aside class="toolbar" id="toolbar" aria-label="Outils">
         <button data-tool="select" title="Sélection (V)" aria-label="Sélection">⬚</button>
+        <button data-tool="lasso" title="Lasso : entourer pour sélectionner (L)" aria-label="Lasso">➰</button>
         <button data-tool="hand" title="Main (H, ou maintenir Espace)" aria-label="Main">✋</button>
+        <span class="tool-sep"></span>
+        <button data-tool="textselect" title="Sélectionner le texte du PDF : copier, surligner, souligner, barrer (X)" aria-label="Sélection de texte">𝙸</button>
+        <button data-tool="edittext" title="Modifier le texte du PDF (M) — ou double-clic sur un texte" aria-label="Modifier le texte">✍</button>
         <span class="tool-sep"></span>
         <button data-tool="pen" title="Stylo (P) — Maj : ligne droite" aria-label="Stylo">✎</button>
         <button data-tool="highlighter" title="Surligneur (S)" aria-label="Surligneur">🖍</button>

@@ -30,7 +30,19 @@ export type ActionId =
   | 'nudge.right.big'
   | 'nudge.up.big'
   | 'nudge.down.big'
+  | 'find'
+  | 'goto'
+  | 'sidebar'
+  | 'pageNext'
+  | 'pagePrev'
+  | 'pageFirst'
+  | 'pageLast'
+  | 'zoomWidth'
+  | 'zoomActual'
   | 'tool.select'
+  | 'tool.lasso'
+  | 'tool.textselect'
+  | 'tool.edittext'
   | 'tool.pen'
   | 'tool.highlighter'
   | 'tool.eraser'
@@ -67,7 +79,19 @@ export const DEFAULT_BINDINGS: Record<ActionId, string[]> = {
   'nudge.right.big': ['Shift+ArrowRight'],
   'nudge.up.big': ['Shift+ArrowUp'],
   'nudge.down.big': ['Shift+ArrowDown'],
+  find: ['Ctrl+KeyF'],
+  goto: ['KeyG', 'Ctrl+Shift+KeyN'],
+  sidebar: ['F9'],
+  pageNext: ['PageDown'],
+  pagePrev: ['PageUp'],
+  pageFirst: ['Home'],
+  pageLast: ['End'],
+  zoomWidth: ['Ctrl+Digit2'],
+  zoomActual: ['Ctrl+Digit1'],
   'tool.select': ['KeyV'],
+  'tool.lasso': ['KeyL'],
+  'tool.textselect': ['KeyX'],
+  'tool.edittext': ['KeyM'],
   'tool.pen': ['KeyP'],
   'tool.highlighter': ['KeyS'],
   'tool.eraser': ['KeyE'],
@@ -76,7 +100,7 @@ export const DEFAULT_BINDINGS: Record<ActionId, string[]> = {
   'tool.hand': ['KeyH']
 }
 
-const STORAGE_KEY = 'feuillet.shortcuts.v2'
+const STORAGE_KEY = 'feuillet.shortcuts.v3'
 
 /** Combinaison normalisée à partir d'un évènement clavier (indépendante de la disposition AZERTY/QWERTY). */
 export function comboFromEvent(e: KeyboardEvent): string {

@@ -5,6 +5,7 @@ import type { Page } from '../core/document'
 import type { Editor } from '../core/editor'
 import { pageRenderer } from '../core/page-renderer'
 import { paperSvg } from '../core/paper'
+import { pdfEngine } from '../pdf/engine'
 import { platform, type FileFilter } from '../platform'
 import { canvasToBlob } from '../util/blob'
 import { saveProject } from './project'
@@ -82,7 +83,7 @@ export class Exporter {
       case 'pdf':
         return [await this.pdf(pages)]
       case 'feuillet':
-        return [await saveProject(this.ed.canvas)]
+        return [await saveProject(this.ed.canvas, { layers: this.ed.layers?.list })]
       case 'svg':
         return Promise.all(pages.map(async (p) => new TextEncoder().encode(await this.svg(p, 'all'))))
       case 'png':
@@ -193,13 +194,26 @@ export class Exporter {
     out.setProducer('Feuillet')
     out.setCreator('Feuillet')
 
+    // Texte d'origine modifié : on part d'une copie du PDF où ce texte est réellement supprimé.
+    const masked = new Map<string, { page: number; masks: [number, number, number, number][] }[]>()
+    for (const page of pages) {
+      if (page.bg.kind !== 'pdf' || !page.masks?.length) continue
+      masked.set(page.bg.assetId, [...(masked.get(page.bg.assetId) ?? []), { page: page.bg.index, masks: page.masks }])
+    }
+    const sources = new Map<string, Uint8Array>()
+    for (const [assetId, list] of masked) {
+      await pdfEngine.open(assetId, assets.get(assetId)!.bytes)
+      sources.set(assetId, await pdfEngine.redacted(assetId, list))
+    }
+
     for (const page of pages) {
       const bg = page.bg
       const hasContent = this.ed.doc.contentOn(page).length > 0
       const source = bg.kind === 'pdf' ? assets.get(bg.assetId) : undefined
 
       if (bg.kind === 'pdf' && source) {
-        const src = await this.loadPdfLib(source.id, source.bytes)
+        const bytes = sources.get(source.id)
+        const src = await this.loadPdfLib(bytes ? `${source.id}#redacted` : source.id, bytes ?? source.bytes)
         const [copied] = await out.copyPages(src, [bg.index])
         out.addPage(copied)
         if (hasContent) await this.overlay(out, copied, page, placementOf(copied), 'none')

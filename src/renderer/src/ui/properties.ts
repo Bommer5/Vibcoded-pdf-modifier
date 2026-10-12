@@ -191,11 +191,11 @@ export class PropertiesPanel {
       ['left', '⇤', 'Aligner à gauche'],
       ['center', '↔', 'Centrer'],
       ['right', '⇥', 'Aligner à droite'],
-      ['justify', '☰', 'Justifier']
+      ['justify-left', '☰', 'Justifier']
     ] as const) {
       this.iconToggle(align, label, title, t.textAlign === id, () => this.apply(texts, (o) => o.set({ textAlign: id })))
     }
-    this.select('Interligne', ['1', '1.15', '1.25', '1.5', '2', '2.5', '3'], String(t.lineHeight), (s) =>
+    this.select('Interligne', ['1', '1.15', '1.25', '1.5', '2', '2.5', '3'], String(Math.round(t.lineHeight * 100) / 100), (s) =>
       this.apply(texts, (o) => o.set({ lineHeight: Number(s) }))
     )
     this.label('Couleur du texte')

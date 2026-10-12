@@ -5,7 +5,7 @@
  */
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium'
 import wasmUrl from '@embedpdf/pdfium/pdfium.wasm?url'
-import type { PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
+import type { PdfFontInfo, PdfMask, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
 
 const FPDF_ANNOT = 0x01
 const FPDF_REVERSE_BYTE_ORDER = 0x10 // sortie RGBA au lieu de BGRA
@@ -15,7 +15,11 @@ interface Doc {
   handle: number
   buffer: number
   pages: PdfPageInfo[]
+  /** Octets d'origine (pour produire une copie modifiée sans toucher au document affiché). */
+  bytes: Uint8Array
 }
+
+const FPDF_PAGEOBJ_TEXT = 1
 
 let engine: Promise<WrappedPdfiumModule> | null = null
 const docs = new Map<string, Doc>()
@@ -59,7 +63,7 @@ async function open(id: string, data: Uint8Array): Promise<PdfPageInfo[]> {
     pages.push(rot % 2 === 1 ? { width: h, height: w } : { width: w, height: h })
   }
   m.pdfium.wasmExports.free(sizePtr)
-  docs.set(id, { handle, buffer, pages })
+  docs.set(id, { handle, buffer, pages, bytes: data })
   return pages
 }
 
@@ -78,10 +82,12 @@ function getDoc(id: string): Doc {
   return doc
 }
 
-async function render(id: string, index: number, width: number, height: number): Promise<ImageBitmap> {
+async function render(id: string, index: number, width: number, height: number, masks?: PdfMask[]): Promise<ImageBitmap> {
   const m = await pdfium()
   const doc = getDoc(id)
   const page = m.FPDF_LoadPage(doc.handle, index)
+  // Le texte modifié est retiré de la page chargée (en mémoire seulement) avant le rendu.
+  if (masks?.length) removeTextIn(m, page, doc.pages[index], masks)
   const bmp = m.FPDFBitmap_CreateEx(width, height, FPDFBitmap_BGRA, 0, 0)
   try {
     m.FPDFBitmap_FillRect(bmp, 0, 0, width, height, 0xffffffff)
@@ -95,6 +101,129 @@ async function render(id: string, index: number, width: number, height: number):
   } finally {
     m.FPDFBitmap_Destroy(bmp)
     m.FPDF_ClosePage(page)
+  }
+}
+
+/** Convertit un point du repère affiché (points, origine en haut à gauche) vers le repère PDF de la page. */
+function toPage(m: WrappedPdfiumModule, page: number, info: PdfPageInfo, x: number, y: number): [number, number] {
+  const K = 20
+  const out = m.pdfium.wasmExports.malloc(16)
+  try {
+    m.FPDF_DeviceToPage(page, 0, 0, Math.round(info.width * K), Math.round(info.height * K), 0, Math.round(x * K), Math.round(y * K), out, out + 8)
+    const v = new Float64Array(heap(m).buffer, out, 2)
+    return [v[0], v[1]]
+  } finally {
+    m.pdfium.wasmExports.free(out)
+  }
+}
+
+/**
+ * Retire les objets texte dont l'essentiel tombe dans une zone masquée.
+ * Renvoie le nombre d'objets retirés.
+ */
+function removeTextIn(m: WrappedPdfiumModule, page: number, info: PdfPageInfo, masks: PdfMask[]): number {
+  const zones = masks.map(([x0, y0, x1, y1]) => {
+    const [ax, ay] = toPage(m, page, info, x0, y0)
+    const [bx, by] = toPage(m, page, info, x1, y1)
+    return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)]
+  })
+  const box = m.pdfium.wasmExports.malloc(16)
+  let removed = 0
+  try {
+    for (let i = m.FPDFPage_CountObjects(page) - 1; i >= 0; i--) {
+      const obj = m.FPDFPage_GetObject(page, i)
+      if (m.FPDFPageObj_GetType(obj) !== FPDF_PAGEOBJ_TEXT) continue
+      if (!m.FPDFPageObj_GetBounds(obj, box, box + 4, box + 8, box + 12)) continue
+      const [l, b, r, t] = f32(m, box, 4)
+      const area = Math.max(1e-3, (r - l) * (t - b))
+      const inside = zones.some(([zx0, zy0, zx1, zy1]) => {
+        const w = Math.min(r, zx1) - Math.max(l, zx0)
+        const h = Math.min(t, zy1) - Math.max(b, zy0)
+        return w > 0 && h > 0 && (w * h) / area > 0.5
+      })
+      if (inside && m.FPDFPage_RemoveObject(page, obj)) {
+        m.FPDFPageObj_Destroy(obj)
+        removed++
+      }
+    }
+  } finally {
+    m.pdfium.wasmExports.free(box)
+  }
+  return removed
+}
+
+/** Police, taille et couleur du texte sous un point (pour reproduire l'apparence en modification). */
+async function fontInfo(id: string, index: number, x: number, y: number): Promise<PdfFontInfo | null> {
+  const m = await pdfium()
+  const doc = getDoc(id)
+  const page = m.FPDF_LoadPage(doc.handle, index)
+  const tp = m.FPDFText_LoadPage(page)
+  const buf = m.pdfium.wasmExports.malloc(256)
+  try {
+    const [px, py] = toPage(m, page, doc.pages[index], x, y)
+    const ci = m.FPDFText_GetCharIndexAtPos(tp, px, py, 4, 4)
+    if (ci < 0) return null
+    const fontSize = m.FPDFText_GetFontSize(tp, ci)
+    const obj = m.FPDFText_GetTextObject(tp, ci)
+    let fontName = ''
+    let bold = false
+    let italic = false
+    let color = '#000000'
+    if (obj) {
+      const font = m.FPDFTextObj_GetFont(obj)
+      if (font) {
+        const len = m.FPDFFont_GetBaseFontName(font, buf, 256)
+        fontName = len > 1 ? m.pdfium.UTF8ToString(buf) : ''
+        bold = m.FPDFFont_GetWeight(font) >= 600 || /bold|black|heavy|semibold/i.test(fontName)
+        italic = (m.FPDFFont_GetFlags(font) & 0x40) !== 0 || /italic|oblique/i.test(fontName)
+      }
+      if (m.FPDFPageObj_GetFillColor(obj, buf, buf + 4, buf + 8, buf + 12)) {
+        const [r, g, b] = new Uint32Array(heap(m).buffer, buf, 3)
+        color = '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
+      }
+    }
+    return { fontSize, fontName: fontName.replace(/^[A-Z]{6}\+/, ''), bold, italic, color }
+  } finally {
+    m.pdfium.wasmExports.free(buf)
+    m.FPDFText_ClosePage(tp)
+    m.FPDF_ClosePage(page)
+  }
+}
+
+/** Copie du PDF où le texte modifié a été réellement supprimé (et non masqué). */
+async function redacted(id: string, pages: { page: number; masks: PdfMask[] }[]): Promise<Uint8Array> {
+  const m = await pdfium()
+  const src = getDoc(id)
+  const buffer = m.pdfium.wasmExports.malloc(src.bytes.length)
+  heap(m).set(src.bytes, buffer)
+  const handle = m.FPDF_LoadMemDocument(buffer, src.bytes.length, '')
+  const chunks: Uint8Array[] = []
+  const writer = m.pdfium.addFunction((_self: number, data: number, size: number) => {
+    chunks.push(heap(m).slice(data, data + size))
+    return 1
+  }, 'iiii')
+  const fw = m.pdfium.wasmExports.malloc(8)
+  try {
+    for (const { page: index, masks } of pages) {
+      const page = m.FPDF_LoadPage(handle, index)
+      if (removeTextIn(m, page, src.pages[index], masks)) m.FPDFPage_GenerateContent(page)
+      m.FPDF_ClosePage(page)
+    }
+    new Int32Array(heap(m).buffer, fw, 2).set([1, writer])
+    if (!m.FPDF_SaveAsCopy(handle, fw, 0)) throw new Error('Enregistrement PDF impossible')
+    const total = chunks.reduce((a, c) => a + c.length, 0)
+    const out = new Uint8Array(total)
+    let o = 0
+    for (const c of chunks) {
+      out.set(c, o)
+      o += c.length
+    }
+    return out
+  } finally {
+    m.pdfium.removeFunction(writer)
+    m.pdfium.wasmExports.free(fw)
+    m.FPDF_CloseDocument(handle)
+    m.pdfium.wasmExports.free(buffer)
   }
 }
 
@@ -232,13 +361,19 @@ self.onmessage = async (e: MessageEvent<{ id: number; req: PdfRequest }>) => {
         await close(req.doc)
         return reply({ ok: true })
       case 'render': {
-        const bitmap = await render(req.doc, req.page, req.width, req.height)
+        const bitmap = await render(req.doc, req.page, req.width, req.height, req.masks)
         return reply({ ok: true, bitmap }, [bitmap])
       }
       case 'text':
         return reply({ ok: true, words: await text(req.doc, req.page) })
       case 'outline':
         return reply({ ok: true, outline: await outline(req.doc) })
+      case 'fontinfo':
+        return reply({ ok: true, font: await fontInfo(req.doc, req.page, req.x, req.y) })
+      case 'redacted': {
+        const file = await redacted(req.doc, req.pages)
+        return reply({ ok: true, file }, [file.buffer])
+      }
       case 'attachment': {
         const file = await attachment(req.doc, req.name)
         return reply({ ok: true, file }, file ? [file.buffer] : [])

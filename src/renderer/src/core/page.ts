@@ -17,6 +17,8 @@ export type PageBackground =
 export class Page extends Rect {
   static type = 'Page'
   declare bg: PageBackground
+  /** Zones (repère de la page) dont le texte d'origine du PDF est retiré : texte modifié ou supprimé. */
+  declare masks: [number, number, number, number][]
   declare pageId: string
   declare role: 'page'
 
@@ -33,6 +35,7 @@ export class Page extends Rect {
     } as never)
     this.role = 'page'
     this.bg ??= { kind: 'blank' }
+    this.masks ??= []
     this.pageId ??= crypto.randomUUID()
   }
 
