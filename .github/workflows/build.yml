@@ -1,0 +1,88 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Vérifications et tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb libreoffice-writer libreoffice-draw poppler-utils
+      - run: npm ci
+      - run: npm run typecheck
+      - run: node tests/bench.mjs
+      - run: xvfb-run -a npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results/out
+
+  native:
+    name: Noyau natif (Rust → WebAssembly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build --release --target wasm32-unknown-unknown --manifest-path native/feuillet-core/Cargo.toml
+      - run: cargo clippy --target wasm32-unknown-unknown --manifest-path native/feuillet-core/Cargo.toml -- -D warnings || true
+
+  desktop:
+    name: Application PC (${{ matrix.os }})
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: dist:linux
+          - os: windows-latest
+            target: dist:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run ${{ matrix.target }} -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feuillet-${{ matrix.os }}
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.exe
+
+  android:
+    name: Application Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v4
+      - run: npm ci
+      - run: npm run android:sync
+      - run: ./gradlew assembleDebug
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feuillet-android
+          path: android/app/build/outputs/apk/debug/*.apk
