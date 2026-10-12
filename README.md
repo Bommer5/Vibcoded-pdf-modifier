@@ -33,7 +33,9 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
   Comme dans Word, curseur dans un mot = tout le mot ; Entrée continue la liste, Entrée sur un
   élément vide la termine, Tab / Maj+Tab change de niveau, les numéros se recalculent seuls
 - **Barre d'outils claire** : chaque outil a son nom sous l'icône, rangés par usage (Sélection,
-  Stylo, Surligneur, Gomme, Texte, Formes, Image, Tableau, Graphique, puis outils PDF, Lasso, Main)
+  Stylo, Surligneur, Gomme, Texte, Formes, Image, Tableau, Graphique, puis « PDF » : Annoter PDF et
+  Modifier PDF, enfin Lasso et Main). Les outils PDF s'expliquent sur place : au survol, le mot ou le
+  paragraphe concerné s'encadre avec ce qui va se passer ; sans PDF, ils sont grisés et disent pourquoi
 - **Pavé tactile** : glisser à deux doigts déplace la vue dans tous les sens, pincer zoome sur le
   pointeur ; la vue ne peut plus « perdre » le document
 - **Panneau Page** (rien de sélectionné) : format (A4, A5, A3, Lettre), portrait / paysage, fond

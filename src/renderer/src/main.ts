@@ -31,6 +31,7 @@ import { TextToolbar } from './ui/text-toolbar'
 import { applyIcons } from './ui/icons'
 import { installTooltips } from './ui/tooltip'
 import { Picking } from './ui/picking'
+import { PdfToolsGuide } from './ui/pdf-tools-guide'
 import { Sidebar } from './ui/sidebar'
 import { TextSelection } from './ui/text-selection'
 import { editTextAt } from './pdf/edit-text'
@@ -164,8 +165,8 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   shape: 'Glissez pour tracer · Maj : carré, cercle, angles de 15° · La forme reste sélectionnée pour l’ajuster',
   text: 'Clic : texte · Glisser : zone de texte · Entourer à main levée : texte qui épouse la forme',
   table: 'Cliquez pour placer le tableau · Double-clic sur une cellule pour écrire',
-  textselect: 'Glissez sur le texte du PDF pour le copier, le surligner, le souligner ou le barrer',
-  edittext: 'Cliquez sur un texte du PDF pour le modifier'
+  textselect: 'Annoter PDF : glissez sur le texte d’un PDF importé, puis Copier, Surligner, Souligner ou Barrer',
+  edittext: 'Modifier PDF : cliquez sur un paragraphe d’un PDF importé pour le réécrire · Échap pour terminer'
 }
 tools.onChange((tool) => {
   document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool))
@@ -388,6 +389,8 @@ const run = (name: string) => (): void => {
   if (name.startsWith('recent:')) return void session.openRecent(name.slice(7))
   void Promise.resolve(actions[name]?.()).then(refreshButtons)
 }
+// Outils PDF expliqués sur place (bande d'aide, encadré au survol, grisés sans PDF).
+new PdfToolsGuide(editor, tools, { open: run('open'), writeText: () => setTool('text') })
 // Clic droit : objets sous le pointeur (y compris ceux du dessous) et commandes usuelles.
 const picking = new Picking(editor, tools, (a) => run(a)())
 

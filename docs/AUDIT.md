@@ -52,6 +52,7 @@ Figma, Inkscape) et réponse apportée :
 | Fonctions cachées | Barre d'état : gestes de l'outil actif ; menu clic droit complet |
 | Icônes seules incompréhensibles au début, outils mal rangés | Libellé sous chaque outil, outils courants en premier, lasso et main à la fin |
 | Défilement au pavé tactile peu fiable, document « perdu » | Défilement à deux doigts regroupé par image, pincement = zoom, vue toujours sur le document |
+| Outils PDF incompris (« ça ne marche pas », « ça entoure tout seul ») | Noms explicites (Annoter PDF, Modifier PDF), intitulé « PDF », encadré au survol avec l'action, bande d'aide, grisés sans PDF avec le bon raccourci (« Écrire du texte ») |
 | Astuces envahissantes | Affichées au début, fermées pour de bon par « Compris » ; panneau Page à la place |
 | PDF inséré au mauvais format (paysage / portrait) | Dialogue : image redimensionnable, pages au format du PDF ou du document, choix des pages |
 
@@ -78,7 +79,7 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **172 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  **182 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
   PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
   superposés, insertion de PDF.
 - `npm run test:mobile` : **15 vérifications** sur un téléphone simulé (Pixel 7, tactile).

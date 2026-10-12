@@ -59,6 +59,38 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
   return box
 }
 
+export interface Box4 {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/** Paragraphe du PDF sous un point (pour l'encadrer au survol), ou null. */
+export async function paragraphAt(ed: Editor, p: Point): Promise<Box4 | null> {
+  const page = ed.doc.pageAt(p)
+  if (!page || page.bg.kind !== 'pdf') return null
+  const words = await pageWords(page)
+  const hit = nearestWord(words, p.x, p.y)
+  if (!hit || p.x < hit.x0 - 4 || p.x > hit.x1 + 4 || p.y < hit.y0 - 4 || p.y > hit.y1 + 4) return null
+  const block = paragraphOf(words, hit)
+  return {
+    x0: Math.min(...block.map((w) => w.x0)),
+    y0: Math.min(...block.map((w) => w.y0)),
+    x1: Math.max(...block.map((w) => w.x1)),
+    y1: Math.max(...block.map((w) => w.y1))
+  }
+}
+
+/** Mot du PDF sous un point, ou null. */
+export async function wordAt(ed: Editor, p: Point): Promise<Box4 | null> {
+  const page = ed.doc.pageAt(p)
+  if (!page || page.bg.kind !== 'pdf') return null
+  const hit = nearestWord(await pageWords(page), p.x, p.y)
+  if (!hit || p.x < hit.x0 - 2 || p.x > hit.x1 + 2 || p.y < hit.y0 - 2 || p.y > hit.y1 + 2) return null
+  return hit
+}
+
 function groupLines(words: DocWord[]): DocWord[][] {
   const map = new Map<number, DocWord[]>()
   for (const w of words) map.set(w.line, [...(map.get(w.line) ?? []), w])
