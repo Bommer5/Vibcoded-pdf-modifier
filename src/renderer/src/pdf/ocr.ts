@@ -4,6 +4,7 @@ import type { Page } from '../core/page'
 import { assets } from '../core/assets'
 import { pdfEngine } from './engine'
 import type { PdfChar } from './protocol'
+import type { Word } from 'tesseract.js'
 
 /**
  * Reconnaissance de caractères (OCR) : rend modifiable le texte qui n'en est pas vraiment un
@@ -141,6 +142,16 @@ function colorsIn(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: num
   return { ink: avg(px.slice(0, k)), bg: avg(px.slice(-Math.max(1, Math.floor(px.length * 0.4)))) }
 }
 
+/** Morceau de ligne reconnue (une colonne), avec ce qu'il faut pour en faire des caractères. */
+interface Seg {
+  words: Word[]
+  size: number
+  ink: string
+  back: string
+  baseAt: (x: number) => number
+  top: number
+}
+
 /** Reconnaît le texte d'une page. `progress` reçoit une valeur entre 0 et 1. */
 export async function recognizePage(page: Page, progress?: (p: number) => void): Promise<OcrData> {
   const canvas = await pageImage(page)
@@ -156,6 +167,7 @@ export async function recognizePage(page: Page, progress?: (p: number) => void):
   const k = 72 / OCR_DPI
   const chars: PdfChar[] = []
   let index = 0
+  const rows: Seg[][] = []
   for (const block of data.blocks ?? []) {
     for (const para of block.paragraphs) {
       for (const line of para.lines) {
@@ -198,6 +210,40 @@ export async function recognizePage(page: Page, progress?: (p: number) => void):
         const cap = tops[Math.floor(tops.length * 0.85)] ?? line.rowAttributes.rowHeight * 0.7
         const size = Math.max(4, (cap / 0.72) * k)
         const { ink, bg: back } = colorsIn(ctx, line.bbox.x0, line.bbox.y0, line.bbox.x1, line.bbox.y1)
+        // Ligne coupée par un grand blanc (colonnes lues côte à côte, tableau) : un morceau par
+        // colonne, remis dans l'ordre de lecture plus bas.
+        const segs: Seg[] = []
+        const gap = (2.5 * cap) / 0.72
+        for (const wd of words) {
+          const lastSeg = segs[segs.length - 1]
+          const prev = lastSeg?.words[lastSeg.words.length - 1]
+          if (lastSeg && wd.bbox.x0 - prev!.bbox.x1 <= gap) lastSeg.words.push(wd)
+          else segs.push({ words: [wd], size, ink, back, baseAt, top: line.bbox.y0 })
+        }
+        rows.push(segs)
+      }
+    }
+  }
+
+  // Colonnes de texte lues ligne à ligne (plusieurs lignes coupées au même endroit, avec des
+  // phrases et pas des cases de tableau) : toute la première colonne, puis la suivante.
+  const ordered: Seg[] = []
+  for (let r = 0; r < rows.length; ) {
+    const n = rows[r].length
+    let end = r
+    while (end < rows.length && rows[end].length === n && n > 1) end++
+    const run = rows.slice(r, end)
+    const wordsPerSeg = run.flat().reduce((a, sg) => a + sg.words.length, 0) / Math.max(1, run.length * n)
+    if (run.length >= 2 && wordsPerSeg >= 2.5) {
+      for (let col = 0; col < n; col++) for (const row of run) ordered.push(row[col])
+      r = end
+    } else {
+      ordered.push(...rows[r])
+      r++
+    }
+  }
+
+  for (const { words, size, ink, back, baseAt, top } of ordered) {
         words.forEach((wd, wi) => {
           if (wi > 0) {
             const prev = words[wi - 1].bbox
@@ -211,7 +257,7 @@ export async function recognizePage(page: Page, progress?: (p: number) => void):
                 x: s.bbox.x0 * k,
                 y: baseAt((s.bbox.x0 + s.bbox.x1) / 2) * k,
                 x0: s.bbox.x0 * k,
-                y0: Math.min(s.bbox.y0, line.bbox.y0) * k,
+                y0: Math.min(s.bbox.y0, top) * k,
                 x1: s.bbox.x1 * k,
                 y1: Math.max(s.bbox.y1, baseAt(s.bbox.x1)) * k,
                 size,
@@ -224,8 +270,6 @@ export async function recognizePage(page: Page, progress?: (p: number) => void):
           }
         })
         chars.push({ c: '\n', x: 0, y: 0, x0: 0, y0: 0, x1: 0, y1: 0, size, f: -1, color: ink, i: index++ })
-      }
-    }
   }
   progress?.(1)
   // Arrondi : le résultat est enregistré avec le document.
@@ -319,6 +363,9 @@ export async function matchFont(page: Page, chars: PdfChar[]): Promise<FontGuess
     const inkRight = Math.max(...word.map((c) => c.x1)) * S
     const baseline = word[0].y * S - y0
     const size = word[0].size * S
+    // Page penchée : le mot de comparaison est penché comme la ligne de base mesurée.
+    const last = word[word.length - 1]
+    const angle = word.length > 1 && last.x !== word[0].x ? Math.atan2(last.y - word[0].y, last.x - word[0].x) : 0
     test.canvas.width = w
     test.canvas.height = h
     for (const family of CANDIDATES) {
@@ -335,7 +382,11 @@ export async function matchFont(page: Page, chars: PdfChar[]): Promise<FontGuess
         test.fillStyle = '#000'
         test.font = font(size * scale)
         const m2 = test.measureText(text)
-        test.fillText(text, inkLeft - x0 + m2.actualBoundingBoxLeft, baseline)
+        test.save()
+        test.translate(inkLeft - x0, baseline)
+        test.rotate(angle)
+        test.fillText(text, m2.actualBoundingBoxLeft, 0)
+        test.restore()
         const d = test.getImageData(0, 0, w, h).data
         let both = 0
         let either = 0
