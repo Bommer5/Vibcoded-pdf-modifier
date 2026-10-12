@@ -1,6 +1,9 @@
-import { FabricImage, Point, Rect, Shadow, util, type Canvas, type FabricObject } from 'fabric'
-import type { Asset } from './assets'
-import { isPageLayer, type Obj } from './props'
+import { Point, util, type Canvas, type FabricObject } from 'fabric'
+import { Page, type PageBackground } from './page'
+import { isPageLayer } from './props'
+
+export { Page }
+export type { PageBackground }
 
 /** Formats de page en points PDF (1 pt = 1/72 pouce). */
 export const PAGE_SIZES = {
@@ -25,23 +28,16 @@ export interface Box {
 }
 
 export interface PageOptions {
-  /** PDF d'origine de la page (export vectoriel fidèle). */
-  pdfAssetId?: string
-  pdfPageIndex?: number
-  /** Image de fond (rendu du PDF, motif lignes/carreaux…). */
-  background?: Asset
+  bg?: PageBackground
   /** Insère après cette page (sinon en fin de document). */
-  after?: Rect
+  after?: Page
 }
 
-const PAGE_GAP = 40
-
-export type Page = Rect & Obj
+export const PAGE_GAP = 40
 
 /**
- * Document = pile verticale de pages. Chaque page est un rectangle blanc
- * verrouillé (role 'page'), éventuellement surmonté d'un fond (role 'page-bg').
- * Le contenu est posé par-dessus et peut déborder d'une page à l'autre.
+ * Document = pile verticale de pages. Le contenu est posé par-dessus et peut
+ * déborder d'une page à l'autre. Les pages sont toujours en bas de la pile d'objets.
  */
 export class DocumentModel {
   constructor(private canvas: Canvas) {}
@@ -49,17 +45,17 @@ export class DocumentModel {
   get pages(): Page[] {
     return this.canvas
       .getObjects()
-      .filter((o): o is Page => (o as Obj).role === 'page')
+      .filter((o): o is Page => o instanceof Page)
       .sort((a, b) => a.top - b.top)
   }
 
-  /** Objets de contenu (hors pages et fonds). */
+  /** Objets de contenu (hors pages). */
   get content(): FabricObject[] {
     return this.canvas.getObjects().filter((o) => !isPageLayer(o))
   }
 
   get isEmpty(): boolean {
-    return this.content.length === 0 && this.pages.every((p) => !(p as Obj).pdfAssetId)
+    return this.content.length === 0 && this.pages.every((p) => p.bg.kind === 'blank' || p.bg.kind === 'paper')
   }
 
   bounds(): Box {
@@ -103,11 +99,13 @@ export class DocumentModel {
     })
   }
 
-  background(page: Page): FabricObject | undefined {
-    return this.canvas.getObjects().find((o) => (o as Obj).role === 'page-bg' && (o as Obj).pageId === page.pageId)
+  /** Objets « appartenant » à une page (leur centre est dessus) : ils la suivent quand on la déplace. */
+  ownedBy(page: Page): FabricObject[] {
+    const pages = this.pages
+    return this.content.filter((o) => this.pageAt(o.getCenterPoint()) === page && pages.includes(page))
   }
 
-  async addPage(size: Size = PAGE_SIZES.A4, opts: PageOptions = {}): Promise<Page> {
+  addPage(size: Size = PAGE_SIZES.A4, opts: PageOptions = {}): Page {
     const pages = this.pages
     const anchor = opts.after ?? pages.at(-1)
     const top = anchor ? anchor.top + anchor.height + PAGE_GAP : 0
@@ -124,49 +122,39 @@ export class DocumentModel {
       }
     }
 
-    const page = new Rect({
-      left,
-      top,
-      width: size.width,
-      height: size.height,
-      originX: 'left',
-      originY: 'top',
-      fill: '#ffffff',
-      strokeWidth: 0,
-      selectable: false,
-      evented: false,
-      hoverCursor: 'default',
-      shadow: new Shadow({ color: 'rgba(0,0,0,0.35)', blur: 12, offsetX: 0, offsetY: 2 })
-    }) as Page
-    page.set({ role: 'page', pageId: crypto.randomUUID(), pdfAssetId: opts.pdfAssetId, pdfPageIndex: opts.pdfPageIndex })
+    const page = new Page({ left, top, width: size.width, height: size.height, bg: opts.bg })
     this.canvas.insertAt(this.layerCount(), page)
-
-    if (opts.background) await this.setBackground(page, opts.background)
     return page
   }
 
-  async setBackground(page: Page, asset: Asset): Promise<void> {
-    const previous = this.background(page)
-    if (previous) this.canvas.remove(previous)
-    const img = await FabricImage.fromURL(asset.url)
-    img.set({
-      left: page.left,
-      top: page.top,
-      originX: 'left',
-      originY: 'top',
-      scaleX: page.width / img.width,
-      scaleY: page.height / img.height,
-      selectable: false,
-      evented: false,
-      hoverCursor: 'default',
-      role: 'page-bg',
-      pageId: page.pageId,
-      assetId: asset.id
-    } as Partial<Obj>)
-    this.canvas.insertAt(this.layerCount(), img)
+  /**
+   * Réordonne les pages (nouvel ordre = liste des pages) : chaque page garde son contenu,
+   * puis tout est réempilé verticalement.
+   */
+  reorder(order: Page[]): void {
+    const owned = new Map(order.map((p) => [p, this.ownedBy(p)]))
+    let top = 0
+    for (const page of order) {
+      const dy = top - page.top
+      if (dy) {
+        page.set({ top: page.top + dy })
+        page.setCoords()
+        for (const o of owned.get(page) ?? []) {
+          o.set({ top: o.top + dy })
+          o.setCoords()
+        }
+      }
+      top += page.height + PAGE_GAP
+    }
   }
 
-  /** Nombre d'objets « structure » (pages + fonds) tout en bas de la pile. */
+  removePage(page: Page): void {
+    const owned = this.ownedBy(page)
+    this.canvas.remove(page, ...owned)
+    this.reorder(this.pages)
+  }
+
+  /** Nombre d'objets « structure » (pages) tout en bas de la pile. */
   layerCount(): number {
     return this.canvas.getObjects().filter(isPageLayer).length
   }

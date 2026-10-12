@@ -1,5 +1,4 @@
 import type { Canvas } from 'fabric'
-import JSZip from 'jszip'
 import { assets } from '../core/assets'
 
 /**
@@ -8,7 +7,7 @@ import { assets } from '../core/assets'
  *   document.json   scène (pages, calques, objets) — tout reste modifiable
  *   assets/<id>     images et PDF d'origine, octet pour octet
  */
-const FORMAT_VERSION = 1
+const FORMAT_VERSION = 2
 
 interface Manifest {
   app: 'Feuillet'
@@ -16,7 +15,12 @@ interface Manifest {
   assets: { id: string; mime: string }[]
 }
 
-type JsonObject = Record<string, unknown> & { objects?: JsonObject[]; src?: string; assetId?: string }
+type JsonObject = Record<string, unknown> & {
+  objects?: JsonObject[]
+  src?: string
+  assetId?: string
+  bg?: { assetId?: string }
+}
 
 function walk(objects: JsonObject[] | undefined, fn: (o: JsonObject) => void): void {
   for (const o of objects ?? []) {
@@ -26,11 +30,12 @@ function walk(objects: JsonObject[] | undefined, fn: (o: JsonObject) => void): v
 }
 
 export async function saveProject(canvas: Canvas): Promise<Uint8Array> {
+  const { default: JSZip } = await import('jszip')
   const scene = canvas.toObject() as JsonObject
   const used = new Set<string>()
   walk(scene.objects, (o) => {
     if (o.assetId) used.add(o.assetId)
-    if (typeof o.pdfAssetId === 'string') used.add(o.pdfAssetId)
+    if (o.bg?.assetId) used.add(o.bg.assetId)
     if (o.assetId) delete o.src // l'URL blob n'a pas de sens hors de la session
   })
   const zip = new JSZip()
@@ -47,6 +52,7 @@ export async function saveProject(canvas: Canvas): Promise<Uint8Array> {
 }
 
 export async function loadProject(canvas: Canvas, data: Uint8Array): Promise<void> {
+  const { default: JSZip } = await import('jszip')
   const zip = await JSZip.loadAsync(data)
   const manifest = JSON.parse((await zip.file('manifest.json')?.async('string')) ?? 'null') as Manifest | null
   if (manifest?.app !== 'Feuillet') throw new Error('Ce fichier n’est pas un projet Feuillet')
@@ -56,9 +62,28 @@ export async function loadProject(canvas: Canvas, data: Uint8Array): Promise<voi
     if (bytes) assets.add(bytes, mime, id)
   }
   const scene = JSON.parse((await zip.file('document.json')!.async('string')) ?? '{}') as JsonObject
+  if (manifest.format < 2) migrateV1(scene)
   walk(scene.objects, (o) => {
     if (o.assetId) o.src = assets.get(o.assetId)?.url ?? ''
   })
   await canvas.loadFromJSON(scene)
   canvas.requestRenderAll()
+}
+
+/**
+ * Format 1 : les fonds de page étaient des images séparées (role 'page-bg').
+ * Format 2 : la page porte la description de son fond, rendue à la demande.
+ */
+function migrateV1(scene: JsonObject): void {
+  const objects = scene.objects ?? []
+  const backgrounds = new Map(objects.filter((o) => o.role === 'page-bg').map((o) => [o.pageId as string, o]))
+  for (const o of objects) {
+    if (o.role !== 'page') continue
+    o.type = 'Page'
+    const bgObj = backgrounds.get(o.pageId as string)
+    if (typeof o.pdfAssetId === 'string') o.bg = { kind: 'pdf', assetId: o.pdfAssetId, index: o.pdfPageIndex ?? 0 } as never
+    else if (bgObj?.assetId) o.bg = { kind: 'image', assetId: bgObj.assetId } as never
+    else o.bg = { kind: 'blank' } as never
+  }
+  scene.objects = objects.filter((o) => o.role !== 'page-bg')
 }

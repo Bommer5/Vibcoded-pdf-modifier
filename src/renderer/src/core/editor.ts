@@ -14,6 +14,8 @@ export interface Editor {
   notify(message: string, kind?: NoticeKind): void
   /** Ajoute un objet de contenu au-dessus des pages. */
   add(obj: FabricObject): void
+  /** Ressources à conserver en changeant de document (ex. images dans le presse-papiers). */
+  keepAssets?: () => Set<string>
   /** Position du pointeur en coordonnées document, s'il est sur le canevas. */
   pointer(): Point | null
 }

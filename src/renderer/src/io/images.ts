@@ -1,7 +1,5 @@
-import { readPsd } from 'ag-psd'
-import * as UTIF from 'utif2'
 import { assets, type Asset } from '../core/assets'
-import { canvasToBlob } from './pdf'
+import { canvasToBlob } from '../util/blob'
 
 /** Formats décodés nativement par le moteur (Chromium / WebView). */
 export const NATIVE_IMAGE_EXT = ['png', 'jpg', 'jpeg', 'jfif', 'pjpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'cur', 'apng']
@@ -40,6 +38,7 @@ export async function decodeImage(ext: string, data: Uint8Array): Promise<Asset[
 }
 
 async function decodeTiff(data: Uint8Array): Promise<Asset[]> {
+  const UTIF = await import('utif2')
   const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
   const ifds = UTIF.decode(buffer).filter((ifd) => ifd['t256'] && ifd['t257'])
   const out: Asset[] = []
@@ -57,6 +56,7 @@ async function decodeTiff(data: Uint8Array): Promise<Asset[]> {
 }
 
 async function decodePsd(data: Uint8Array): Promise<Asset> {
+  const { readPsd } = await import('ag-psd')
   const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
   const psd = readPsd(buffer, { skipLayerImageData: true, skipThumbnail: true })
   if (!psd.canvas) throw new Error('Ce PSD ne contient pas d’image composite (enregistrez-le avec « Maximiser la compatibilité »)')

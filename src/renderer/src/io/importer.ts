@@ -1,11 +1,12 @@
 import { FabricImage, loadSVGFromString, Point, util, type FabricObject } from 'fabric'
 import { assets, type Asset } from '../core/assets'
+import { pageRenderer } from '../core/page-renderer'
 import type { Editor } from '../core/editor'
 import type { Page } from '../core/document'
 import type { Obj } from '../core/props'
 import { platform, type FileFilter, type OpenedFile } from '../platform'
 import { decodeImage, DECODED_IMAGE_EXT, NATIVE_IMAGE_EXT } from './images'
-import { loadPdf, pageSize, renderPage } from './pdf'
+import { pdfEngine } from '../pdf/engine'
 import { loadProject } from './project'
 import { decodeText, importTextAsPages, textBox, TEXT_EXT } from './text'
 import { importXournal } from './xournal'
@@ -83,7 +84,10 @@ export class Importer {
 
   private async replaceWith(files: OpenedFile[]): Promise<void> {
     this.ed.doc.clear()
-    assets.clear()
+    pageRenderer.clear()
+    await pdfEngine.closeAll()
+    pdfEngine.forgetText()
+    assets.clear(this.ed.keepAssets?.())
     for (const file of files) {
       if (kindOf(file.name) === 'project') {
         if (files.length > 1) throw new Error('Ouvrez un projet .feuillet seul')
@@ -179,9 +183,10 @@ export class Importer {
       case 'image': {
         const pages: Page[] = []
         for (const asset of await decodeImage(ext, file.data)) {
-          const img = await FabricImage.fromURL(asset.url)
-          const size = { width: img.width * PX_TO_PT, height: img.height * PX_TO_PT }
-          pages.push(await doc.addPage(size, { background: asset, after: pages.at(-1) ?? after }))
+          const bmp = await createImageBitmap(new Blob([asset.bytes as BlobPart], { type: asset.mime }))
+          const size = { width: bmp.width * PX_TO_PT, height: bmp.height * PX_TO_PT }
+          bmp.close()
+          pages.push(doc.addPage(size, { bg: { kind: 'image', assetId: asset.id }, after: pages.at(-1) ?? after }))
         }
         return pages
       }
@@ -197,27 +202,14 @@ export class Importer {
     }
   }
 
-  private async appendPdf(bytes: Uint8Array, name: string, after?: Page): Promise<Page[]> {
+  /** Pages d'un PDF : seule la taille est lue ici (instantané) ; le rendu se fait à l'affichage. */
+  private async appendPdf(bytes: Uint8Array, _name: string, after?: Page): Promise<Page[]> {
     const asset = assets.add(bytes, 'application/pdf')
-    const pdf = await loadPdf(bytes)
+    const sizes = await pdfEngine.open(asset.id, bytes)
     const pages: Page[] = []
-    try {
-      for (let i = 0; i < pdf.numPages; i++) {
-        if (pdf.numPages > 3) this.ed.notify(`${name} : page ${i + 1} / ${pdf.numPages}…`)
-        const page = await pdf.getPage(i + 1)
-        const background = await assets.addBlob(await renderPage(page))
-        pages.push(
-          await this.ed.doc.addPage(pageSize(page), {
-            pdfAssetId: asset.id,
-            pdfPageIndex: i,
-            background,
-            after: pages.at(-1) ?? after
-          })
-        )
-      }
-    } finally {
-      await pdf.loadingTask.destroy()
-    }
+    sizes.forEach((size, index) => {
+      pages.push(this.ed.doc.addPage(size, { bg: { kind: 'pdf', assetId: asset.id, index }, after: pages.at(-1) ?? after }))
+    })
     return pages
   }
 

@@ -19,6 +19,7 @@ import { ToolManager, type Tool } from './tools/manager'
 import { MenuBar, type Menu } from './ui/menubar'
 import { PropertiesPanel } from './ui/properties'
 import { settings } from './tools/settings'
+import { pageRenderer } from './core/page-renderer'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 const workspace = $('workspace')
@@ -341,4 +342,4 @@ const pending = await platform.pendingFiles()
 if (pending.length > 0) await importer.open(pending)
 
 // Accès pour les tests automatisés de bout en bout.
-Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, formats: EXPORT_FORMATS } })
+Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS } })

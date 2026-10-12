@@ -111,7 +111,7 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
 
   // 7. Office + Xournal
   await win.evaluate(([b]) => window.__feuillet.importer.open([window.__file('lettre.docx', b)]), [b64('lettre.docx')])
-  s = await stats(); check('open docx via LibreOffice', s.pages >= 1 && await win.evaluate(() => !!window.__feuillet.editor.doc.pages[0].pdfAssetId), JSON.stringify(s))
+  s = await stats(); check('open docx via LibreOffice', s.pages >= 1 && await win.evaluate(() => window.__feuillet.editor.doc.pages[0].bg.kind === 'pdf'), JSON.stringify(s))
   await win.screenshot({ path: path.join(outDir, '3-docx.png') })
   await win.evaluate(([b, p]) => window.__feuillet.importer.open([{ ...window.__file('carnet.xopp', b), path: p }]), [b64('carnet.xopp'), path.join(fx, 'carnet.xopp')])
   s = await stats(); check('open xopp', s.pages === 2 && s.content === 4, JSON.stringify(s))

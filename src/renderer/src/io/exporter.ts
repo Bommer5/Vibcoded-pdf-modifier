@@ -1,16 +1,22 @@
-import { Document as DocxDocument, HorizontalPositionRelativeFrom, ImageRun, Packer, Paragraph, VerticalPositionRelativeFrom } from 'docx'
 import { StaticCanvas, type FabricObject } from 'fabric'
-import { jsPDF } from 'jspdf'
-import { degrees, PDFDocument, PDFImage, type PDFEmbeddedPage, type PDFPage } from 'pdf-lib'
-import { svg2pdf } from 'svg2pdf.js'
-import * as UTIF from 'utif2'
+import type { PDFDocument, PDFEmbeddedPage, PDFImage, PDFPage } from 'pdf-lib'
 import { assets, toDataUrl } from '../core/assets'
 import type { Page } from '../core/document'
 import type { Editor } from '../core/editor'
-import type { Obj } from '../core/props'
+import { pageRenderer } from '../core/page-renderer'
+import { paperSvg } from '../core/paper'
 import { platform, type FileFilter } from '../platform'
-import { canvasToBlob } from './pdf'
+import { canvasToBlob } from '../util/blob'
 import { saveProject } from './project'
+
+// Bibliothèques lourdes chargées seulement au moment d'exporter (démarrage plus rapide, moins de mémoire).
+const lib = {
+  pdf: () => import('pdf-lib'),
+  jspdf: () => import('jspdf'),
+  svg2pdf: () => import('svg2pdf.js'),
+  docx: () => import('docx'),
+  utif: () => import('utif2')
+}
 
 export interface ExportFormat {
   id: string
@@ -78,7 +84,7 @@ export class Exporter {
       case 'feuillet':
         return [await saveProject(this.ed.canvas)]
       case 'svg':
-        return Promise.all(pages.map(async (p) => new TextEncoder().encode(await this.svg(p, true))))
+        return Promise.all(pages.map(async (p) => new TextEncoder().encode(await this.svg(p, 'all'))))
       case 'png':
       case 'jpg':
       case 'webp':
@@ -89,7 +95,8 @@ export class Exporter {
             return new Uint8Array(await blob.arrayBuffer())
           })
         )
-      case 'tiff':
+      case 'tiff': {
+        const UTIF = await lib.utif()
         return Promise.all(
           pages.map(async (p) => {
             const canvas = await this.raster(p, dpi)
@@ -97,6 +104,7 @@ export class Exporter {
             return new Uint8Array(UTIF.encodeImage(rgba.buffer as ArrayBuffer, canvas.width, canvas.height))
           })
         )
+      }
       case 'docx':
         return [await this.docx(pages, dpi)]
       default: {
@@ -111,50 +119,65 @@ export class Exporter {
 
   // --- Scène d'une page -------------------------------------------------------
 
-  /** Objets à dessiner sur une page, clonés. Les fonds PDF sont exclus si `withBackground` est faux. */
-  private async sceneObjects(page: Page, withBackground: boolean): Promise<FabricObject[]> {
-    const { doc } = this.ed
-    const objs = [...(withBackground ? [doc.background(page)].filter((o): o is FabricObject => !!o) : []), ...doc.contentOn(page)]
-    return Promise.all(objs.map((o) => o.clone()))
+  /** Objets de contenu dessinés sur une page, clonés. */
+  private async sceneObjects(page: Page): Promise<FabricObject[]> {
+    return Promise.all(this.ed.doc.contentOn(page).map((o) => o.clone()))
   }
 
   async raster(page: Page, dpi: number, withBackground = true, transparent = false): Promise<HTMLCanvasElement> {
     const s = dpi / 72
-    const sc = new StaticCanvas(undefined, {
-      width: Math.round(page.width * s),
-      height: Math.round(page.height * s),
-      enableRetinaScaling: false,
-      backgroundColor: transparent ? undefined : '#ffffff',
-      renderOnAddRemove: false
-    })
-    sc.add(...(await this.sceneObjects(page, withBackground)))
+    const out = document.createElement('canvas')
+    out.width = Math.round(page.width * s)
+    out.height = Math.round(page.height * s)
+    const ctx = out.getContext('2d')!
+    if (withBackground) await pageRenderer.paint(ctx, page, s)
+    else if (!transparent) {
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, out.width, out.height)
+    }
+    const sc = new StaticCanvas(undefined, { width: out.width, height: out.height, enableRetinaScaling: false, renderOnAddRemove: false })
+    sc.add(...(await this.sceneObjects(page)))
     sc.setViewportTransform([s, 0, 0, s, -page.left * s, -page.top * s])
     sc.renderAll()
-    const out = document.createElement('canvas')
-    out.width = sc.width
-    out.height = sc.height
-    out.getContext('2d')!.drawImage(sc.getElement(), 0, 0)
+    ctx.drawImage(sc.getElement(), 0, 0)
     await sc.dispose()
     return out
   }
 
-  /** SVG autonome d'une page (images incluses en data URL). */
-  async svg(page: Page, withBackground: boolean): Promise<string> {
-    const sc = new StaticCanvas(undefined, {
-      width: page.width,
-      height: page.height,
-      enableRetinaScaling: false,
-      backgroundColor: withBackground ? '#ffffff' : undefined,
-      renderOnAddRemove: false
-    })
-    sc.add(...(await this.sceneObjects(page, withBackground)))
+  /**
+   * SVG autonome d'une page (images en data URL).
+   * Fond : 'all' (tout), 'vector' (papier seulement, le reste est posé à part), 'none'.
+   */
+  async svg(page: Page, background: 'all' | 'vector' | 'none'): Promise<string> {
+    const sc = new StaticCanvas(undefined, { width: page.width, height: page.height, enableRetinaScaling: false, renderOnAddRemove: false })
+    sc.add(...(await this.sceneObjects(page)))
     sc.setViewportTransform([1, 0, 0, 1, -page.left, -page.top])
     let markup = sc.toSVG({ width: `${page.width}pt`, height: `${page.height}pt` })
     await sc.dispose()
     for (const asset of assets.all()) {
       if (asset.mime.startsWith('image/') && markup.includes(asset.url)) markup = markup.split(asset.url).join(toDataUrl(asset))
     }
+    const bg = await this.backgroundSvg(page, background)
+    if (bg) {
+      const at = markup.indexOf('</defs>')
+      const insertAt = at >= 0 ? at + 7 : markup.indexOf('>', markup.indexOf('<svg')) + 1
+      markup = markup.slice(0, insertAt) + `<g transform="translate(${page.left} ${page.top})">${bg}</g>` + markup.slice(insertAt)
+    }
     return markup
+  }
+
+  private async backgroundSvg(page: Page, mode: 'all' | 'vector' | 'none'): Promise<string> {
+    if (mode === 'none') return ''
+    const bg = page.bg
+    if (bg.kind === 'paper') return paperSvg(page, bg.style, bg.color)
+    if (mode === 'vector' || bg.kind === 'blank') return mode === 'all' ? `<rect width="${page.width}" height="${page.height}" fill="#ffffff"/>` : ''
+    // Fond rendu en image (2× = 144 ppp) pour un SVG autonome.
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(page.width * 2)
+    canvas.height = Math.round(page.height * 2)
+    await pageRenderer.paint(canvas.getContext('2d')!, page, 2)
+    const url = canvas.toDataURL('image/jpeg', 0.9)
+    return `<image x="0" y="0" width="${page.width}" height="${page.height}" preserveAspectRatio="none" href="${url}"/>`
   }
 
   // --- PDF --------------------------------------------------------------------
@@ -165,23 +188,31 @@ export class Exporter {
    * en vectoriel (svg2pdf). Repli en image haute définition si besoin.
    */
   async pdf(pages: Page[]): Promise<Uint8Array> {
+    const { PDFDocument } = await lib.pdf()
     const out = await PDFDocument.create()
     out.setProducer('Feuillet')
     out.setCreator('Feuillet')
 
     for (const page of pages) {
-      const p = page as Obj & Page
-      const source = p.pdfAssetId ? assets.get(p.pdfAssetId) : undefined
+      const bg = page.bg
       const hasContent = this.ed.doc.contentOn(page).length > 0
+      const source = bg.kind === 'pdf' ? assets.get(bg.assetId) : undefined
 
-      if (source && p.pdfPageIndex !== undefined) {
+      if (bg.kind === 'pdf' && source) {
         const src = await this.loadPdfLib(source.id, source.bytes)
-        const [copied] = await out.copyPages(src, [p.pdfPageIndex])
+        const [copied] = await out.copyPages(src, [bg.index])
         out.addPage(copied)
-        if (hasContent) await this.overlay(out, copied, page, placementOf(copied))
-      } else {
-        const target = out.addPage([page.width, page.height])
-        await this.overlay(out, target, page, { rotation: 0, x: 0, y: 0, width: page.width, height: page.height }, true)
+        if (hasContent) await this.overlay(out, copied, page, placementOf(copied), 'none')
+        continue
+      }
+      const target = out.addPage([page.width, page.height])
+      if (bg.kind === 'image') {
+        // Image d'origine intégrée telle quelle (pas de recompression).
+        const image = await this.embedImage(out, bg.assetId)
+        if (image) target.drawImage(image, { x: 0, y: 0, width: page.width, height: page.height })
+      }
+      if (hasContent || bg.kind === 'paper') {
+        await this.overlay(out, target, page, { rotation: 0, x: 0, y: 0, width: page.width, height: page.height }, 'vector')
       }
     }
     return out.save()
@@ -190,16 +221,33 @@ export class Exporter {
   private loadPdfLib(id: string, bytes: Uint8Array): Promise<PDFDocument> {
     let doc = this.pdfCache.get(id)
     if (!doc) {
-      doc = PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false })
+      doc = lib.pdf().then(({ PDFDocument }) => PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }))
       this.pdfCache.set(id, doc)
     }
     return doc
   }
 
-  private async overlay(out: PDFDocument, target: PDFPage, page: Page, at: PdfPlacement, withBackground = false): Promise<void> {
+  private async embedImage(out: PDFDocument, assetId: string): Promise<PDFImage | null> {
+    const asset = assets.get(assetId)
+    if (!asset) return null
+    if (asset.mime === 'image/jpeg') return out.embedJpg(asset.bytes)
+    if (asset.mime === 'image/png') return out.embedPng(asset.bytes)
+    const bmp = await createImageBitmap(new Blob([asset.bytes as BlobPart], { type: asset.mime }))
+    const canvas = document.createElement('canvas')
+    canvas.width = bmp.width
+    canvas.height = bmp.height
+    canvas.getContext('2d')!.drawImage(bmp, 0, 0)
+    bmp.close()
+    return out.embedPng(new Uint8Array(await (await canvasToBlob(canvas, 'image/png')).arrayBuffer()))
+  }
+
+  private async overlay(out: PDFDocument, target: PDFPage, page: Page, at: PdfPlacement, background: 'vector' | 'none'): Promise<void> {
     let embedded: PDFEmbeddedPage | PDFImage
+    const { degrees, PDFImage } = await lib.pdf()
     try {
-      const svgText = pdfFonts(await this.svg(page, withBackground))
+      const { jsPDF } = await lib.jspdf()
+      const { svg2pdf } = await lib.svg2pdf()
+      const svgText = pdfFonts(await this.svg(page, background))
       const svgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement
       const pdf = new jsPDF({ unit: 'pt', format: [page.width, page.height], orientation: page.width > page.height ? 'l' : 'p', compress: true, putOnlyUsedFonts: true })
       await svg2pdf(svgEl, pdf, { x: 0, y: 0, width: page.width, height: page.height })
@@ -207,15 +255,16 @@ export class Exporter {
       embedded = first
     } catch (e) {
       console.warn('Export vectoriel impossible, repli en image 300 ppp', e)
-      const canvas = await this.raster(page, 300, withBackground, !withBackground)
+      const canvas = await this.raster(page, 300, false, true)
       embedded = await out.embedPng(new Uint8Array(await (await canvasToBlob(canvas, 'image/png')).arrayBuffer()))
     }
-    draw(target, embedded, at)
+    draw(target, embedded, at, degrees, PDFImage)
   }
 
   // --- Word -------------------------------------------------------------------
 
   private async docx(pages: Page[], dpi: number): Promise<Uint8Array> {
+    const { Document: DocxDocument, HorizontalPositionRelativeFrom, ImageRun, Packer, Paragraph, VerticalPositionRelativeFrom } = await lib.docx()
     const sections = await Promise.all(
       pages.map(async (page) => {
         const canvas = await this.raster(page, dpi)
@@ -277,11 +326,17 @@ function placementOf(page: PDFPage): PdfPlacement {
  * Dessine la surcouche (en coordonnées « page affichée ») sur une page PDF
  * dont le contenu est éventuellement tourné par /Rotate.
  */
-function draw(target: PDFPage, what: PDFEmbeddedPage | PDFImage, at: PdfPlacement): void {
+function draw(
+  target: PDFPage,
+  what: PDFEmbeddedPage | PDFImage,
+  at: PdfPlacement,
+  degrees: typeof import('pdf-lib').degrees,
+  PDFImageClass: typeof import('pdf-lib').PDFImage
+): void {
   const { rotation: r, x, y, width: W, height: H } = at
   const displayed = r % 180 === 0 ? { width: W, height: H } : { width: H, height: W }
   const origin = r === 90 ? { x: x + W, y } : r === 180 ? { x: x + W, y: y + H } : r === 270 ? { x, y: y + H } : { x, y }
   const opts = { ...origin, ...displayed, rotate: degrees(r) }
-  if (what instanceof PDFImage) target.drawImage(what, opts)
+  if (what instanceof PDFImageClass) target.drawImage(what, opts)
   else target.drawPage(what, opts)
 }

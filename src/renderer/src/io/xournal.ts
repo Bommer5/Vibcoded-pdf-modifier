@@ -3,9 +3,8 @@ import { assets } from '../core/assets'
 import type { DocumentModel, Page } from '../core/document'
 import type { Obj } from '../core/props'
 import { platform } from '../platform'
-import { paperBackground, type PaperStyle } from './backgrounds'
-import { loadPdf, renderPage } from './pdf'
-import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import type { PaperStyle } from '../core/paper'
+import { pdfEngine } from '../pdf/engine'
 
 /**
  * Import des carnets Xournal++ (.xopp) et Xournal (.xoj) : XML compressé gzip.
@@ -41,7 +40,7 @@ export async function importXournal(
   const xml = new DOMParser().parseFromString(await gunzip(data), 'application/xml')
   if (xml.querySelector('parsererror')) throw new Error('Fichier Xournal illisible')
 
-  let pdf: { doc: PDFDocumentProxy; assetId: string } | null = null
+  let pdf: { pages: number; assetId: string } | null = null
   const pages: Page[] = []
 
   for (const pageEl of Array.from(xml.querySelectorAll('xournal > page'))) {
@@ -53,9 +52,8 @@ export async function importXournal(
       const filename = bg.getAttribute('filename')
       if (filename && !pdf) pdf = await loadReferencedPdf(filename, sourcePath)
       const index = parseInt(bg.getAttribute('pageno') ?? '1', 10) - 1
-      if (pdf && index < pdf.doc.numPages) {
-        const rendered = await assets.addBlob(await renderPage(await pdf.doc.getPage(index + 1)))
-        page = await doc.addPage(size, { pdfAssetId: pdf.assetId, pdfPageIndex: index, background: rendered })
+      if (pdf && index < pdf.pages) {
+        page = doc.addPage(size, { bg: { kind: 'pdf', assetId: pdf.assetId, index } })
       } else {
         page = await doc.addPage(size)
       }
@@ -64,8 +62,7 @@ export async function importXournal(
     } else {
       const style = (bg?.getAttribute('style') ?? 'plain') as PaperStyle
       const { color } = parseColor(bg?.getAttribute('color') ?? '#ffffffff')
-      const paper = await paperBackground(size, style, color)
-      page = await doc.addPage(size, paper ? { background: paper } : {})
+      page = doc.addPage(size, style === 'plain' && color === '#ffffff' ? {} : { bg: { kind: 'paper', style, color } })
     }
     pages.push(page)
 
@@ -85,7 +82,7 @@ export async function importXournal(
 async function loadReferencedPdf(
   filename: string,
   sourcePath: string | undefined
-): Promise<{ doc: PDFDocumentProxy; assetId: string } | null> {
+): Promise<{ pages: number; assetId: string } | null> {
   const candidates = [filename]
   if (sourcePath) {
     const dir = sourcePath.replace(/[\\/][^\\/]*$/, '')
@@ -96,7 +93,7 @@ async function loadReferencedPdf(
     const bytes = await platform.readReferencedPdf(path)
     if (!bytes) continue
     const asset = assets.add(bytes, 'application/pdf')
-    return { doc: await loadPdf(bytes), assetId: asset.id }
+    return { pages: (await pdfEngine.open(asset.id, bytes)).length, assetId: asset.id }
   }
   return null
 }

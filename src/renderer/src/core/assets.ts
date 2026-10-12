@@ -40,10 +40,14 @@ class AssetStore {
     return [...this.byId.values()]
   }
 
-  clear(): void {
-    for (const a of this.byId.values()) URL.revokeObjectURL(a.url)
-    this.byId.clear()
-    this.idByUrl.clear()
+  /** Libère les ressources, sauf celles encore référencées ailleurs (presse-papiers…). */
+  clear(keep: Set<string> = new Set()): void {
+    for (const a of [...this.byId.values()]) {
+      if (keep.has(a.id)) continue
+      URL.revokeObjectURL(a.url)
+      this.byId.delete(a.id)
+      this.idByUrl.delete(a.url)
+    }
   }
 }
 

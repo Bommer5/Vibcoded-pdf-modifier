@@ -13,10 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist:linux": "electron-vite build && electron-builder --linux",
     "dist:win": "electron-vite build && electron-builder --win",
-    "postinstall": "node scripts/copy-pdfjs-assets.mjs",
-    "predev": "node scripts/copy-pdfjs-assets.mjs",
-    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
-    "build:web": "node scripts/copy-pdfjs-assets.mjs && vite build -c vite.web.config.ts",
+    "build:web": "vite build -c vite.web.config.ts",
     "android:sync": "npm run build:web && cap sync android",
     "android:open": "cap open android",
     "test:e2e": "npm run build && node tests/e2e/fixtures.cjs test-results/fx && node tests/e2e/app.cjs . test-results/fx test-results/out && node tests/e2e/tools.cjs . test-results/tools"
@@ -36,6 +33,7 @@
     "@capacitor/core": "^8.5.3",
     "@capacitor/filesystem": "^8.1.4",
     "@capacitor/share": "^8.0.3",
+    "@embedpdf/pdfium": "^2.15.1",
     "ag-psd": "^31.0.3",
     "docx": "^9.10.0",
     "fabric": "^7.4.0",
@@ -43,7 +41,6 @@
     "jszip": "^3.10.2",
     "mammoth": "^1.13.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.4.299",
     "perfect-freehand": "^1.2.3",
     "svg2pdf.js": "^2.8.1",
     "utif2": "^4.1.0"
