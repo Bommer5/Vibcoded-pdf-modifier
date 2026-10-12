@@ -3,9 +3,12 @@ productName: Feuillet
 directories:
   buildResources: build
   output: release
+# Le code (interface comprise) est déjà assemblé dans out/ : aucune bibliothèque à recopier.
 files:
   - out/**
   - package.json
+  - "!node_modules/**"
+asar: true
 fileAssociations:
   - ext: pdf
     name: PDF Document
@@ -13,6 +16,12 @@ fileAssociations:
 linux:
   target: [AppImage, deb]
   category: Graphics
+  # Mainteneur du paquet .deb (obligatoire) : à remplacer par l'adresse de l'éditeur.
+  maintainer: Feuillet <feuillet@users.noreply.github.com>
+  synopsis: Éditeur de PDF, documents et images pour tablettes graphiques
+  desktop:
+    entry:
+      StartupWMClass: Feuillet
 win:
   target: [nsis, portable]
 nsis:
