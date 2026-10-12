@@ -37,9 +37,12 @@ export function installParagraphSpacing(): void {
   if (installed) return
   installed = true
   for (const cls of [FabricText, IText, Textbox] as unknown as { textLayoutProperties: string[]; cacheProperties: string[] }[]) {
-    if (!cls.textLayoutProperties.includes('paragraphSpacing')) cls.textLayoutProperties.push('paragraphSpacing')
-    if (!cls.cacheProperties.includes('paragraphSpacing')) cls.cacheProperties.push('paragraphSpacing')
+    for (const prop of ['paragraphSpacing', 'firstIndent']) {
+      if (!cls.textLayoutProperties.includes(prop)) cls.textLayoutProperties.push(prop)
+      if (!cls.cacheProperties.includes(prop)) cls.cacheProperties.push(prop)
+    }
   }
+  installFirstIndent()
   const proto = FabricText.prototype as unknown as Record<string, (...a: never[]) => unknown>
 
   proto.getHeightOfLine = function (this: T, i: number) {
@@ -101,4 +104,86 @@ function decorationsByParagraph(t: T, ctx: CanvasRenderingContext2D, type: strin
     self.getHeightOfLine = getHeight
     self.getValueOfPropertyAt = getValue
   }
+}
+
+// --- Retrait de première ligne (comme Word : Paragraphe › Retrait › Première ligne) -----------
+
+type Indented = T & {
+  firstIndent?: number
+  width: number
+  dynamicMinWidth: number
+  splitByGrapheme: boolean
+  _getWidthOfCharSpacing(): number
+  _measureWord(word: string[], lineIndex: number, offset: number): number
+}
+
+/** Retrait de la ligne `i` : `firstIndent` sur la première ligne de chaque paragraphe. */
+export function indentOfLine(t: Indented, i: number): number {
+  const v = t.firstIndent ?? 0
+  if (!v || t.contour) return 0
+  // Textbox : une ligne commence un paragraphe si la précédente finissait par un retour.
+  return i === 0 || !t._styleMap || t.isEndOfWrapping(i - 1) ? v : 0
+}
+
+function installFirstIndent(): void {
+  const proto = FabricText.prototype as unknown as Record<string, (...a: never[]) => unknown>
+  // Largeur de ligne = texte + retrait : la justification, le centrage et l'alignement à
+  // droite en tiennent compte d'eux-mêmes.
+  const lineWidth = proto.getLineWidth
+  proto.getLineWidth = function (this: Indented, i: number) {
+    return (lineWidth.call(this, i as never) as number) + indentOfLine(this, i)
+  } as never
+  const leftOffset = proto._getLineLeftOffset
+  proto._getLineLeftOffset = function (this: Indented, i: number) {
+    return (leftOffset.call(this, i as never) as number) + indentOfLine(this, i)
+  } as never
+
+  // Retour à la ligne automatique : la première ligne d'un paragraphe a moins de place.
+  // (Copie de Textbox._wrapLine de Fabric 7, avec la largeur réduite de la première ligne.)
+  const tproto = Textbox.prototype as unknown as Record<string, (...a: never[]) => unknown>
+  const wrapLine = tproto._wrapLine
+  tproto._wrapLine = function (
+    this: Indented,
+    lineIndex: number,
+    desiredWidth: number,
+    data: { largestWordWidth: number; wordsData: { word: string[]; width: number }[][] },
+    reservedSpace = 0
+  ) {
+    const indent = this.firstIndent ?? 0
+    if (!indent || this.contour) return wrapLine.call(this, lineIndex as never, desiredWidth as never, data as never, reservedSpace as never)
+    const { largestWordWidth, wordsData } = data
+    const additionalSpace = this._getWidthOfCharSpacing()
+    const splitByGrapheme = this.splitByGrapheme
+    const graphemeLines: string[][] = []
+    const infix = splitByGrapheme ? '' : ' '
+    let lineWidth = 0
+    let line: string[] = []
+    let offset = 0
+    let infixWidth = 0
+    let lineJustStarted = true
+    desiredWidth -= reservedSpace
+    const maxWidth = Math.max(desiredWidth, largestWordWidth, this.dynamicMinWidth)
+    const words = wordsData[lineIndex]
+    let i: number
+    for (i = 0; i < words.length; i++) {
+      const { word, width: wordWidth } = words[i]
+      offset += word.length
+      lineWidth += infixWidth + wordWidth - additionalSpace
+      const limit = graphemeLines.length === 0 ? Math.max(maxWidth - indent, largestWordWidth) : maxWidth
+      if (lineWidth > limit && !lineJustStarted) {
+        graphemeLines.push(line)
+        line = []
+        lineWidth = wordWidth
+        lineJustStarted = true
+      } else lineWidth += additionalSpace
+      if (!lineJustStarted && !splitByGrapheme) line.push(infix)
+      line = line.concat(word)
+      infixWidth = splitByGrapheme ? 0 : this._measureWord([infix], lineIndex, offset)
+      offset++
+      lineJustStarted = false
+    }
+    if (i) graphemeLines.push(line)
+    if (largestWordWidth + reservedSpace > this.dynamicMinWidth) this.dynamicMinWidth = largestWordWidth - additionalSpace + reservedSpace
+    return graphemeLines
+  } as never
 }

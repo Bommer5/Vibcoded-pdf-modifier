@@ -1,6 +1,7 @@
 import { classRegistry, FabricObject, Rect, Shadow, type TOptions, type RectProps } from 'fabric'
 import './props'
 import type { PaperStyle } from './paper'
+import type { PdfShift } from '../pdf/protocol'
 import { pageRenderer } from './page-renderer'
 
 /** Fond d'une page : une description légère, rendue à la demande. */
@@ -19,6 +20,8 @@ export class Page extends Rect {
   declare bg: PageBackground
   /** Zones (repère de la page) dont le texte d'origine du PDF est retiré : texte modifié ou supprimé. */
   declare masks: [number, number, number, number][]
+  /** Décalages du contenu d'origine sous les paragraphes modifiés (voir PdfShift). */
+  declare shifts: PdfShift[]
   declare pageId: string
   declare role: 'page'
 
@@ -51,4 +54,4 @@ export class Page extends Rect {
 }
 
 classRegistry.setClass(Page)
-FabricObject.customProperties.push('bg')
+FabricObject.customProperties.push('bg', 'shifts')

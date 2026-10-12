@@ -65,7 +65,22 @@ async function localFont(family: string, style: Style): Promise<FontFile | null>
   }
 }
 
+/** Polices reconstruites depuis un PDF (voir pdf/pdf-fonts.ts) : prioritaires, quel que soit le style. */
+const registered = new Map<string, FontFile>()
+const registeredFamilies = new Set<string>()
+
+export function registerFontFile(family: string, bold: boolean, italic: boolean, bytes: Uint8Array, psName: string): void {
+  registered.set(`${family.toLowerCase()}|${styleOf(bold, italic)}`, { bytes, psName })
+  registeredFamilies.add(family.toLowerCase())
+}
+
+/** « 'pdf-x', 'Liberation Serif' » → ['pdf-x', 'Liberation Serif'] */
+export const familyList = (family: string): string[] =>
+  family.split(',').map((f) => f.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+
 function fontBytes(family: string, style: Style): Promise<FontFile | null> {
+  // Police reconstruite depuis le PDF : ce style-là ou rien (la suivante de la liste prendra le relais).
+  if (registeredFamilies.has(family.toLowerCase())) return Promise.resolve(registered.get(`${family.toLowerCase()}|${style}`) ?? null)
   const key = `${family}|${style}`
   let p = bytesCache.get(key)
   if (!p) {
@@ -88,15 +103,36 @@ export class PdfFonts {
   private fonts = new Map<string, Promise<PDFFont>>()
   constructor(private out: PDFDocument) {}
 
+  /** Polices candidates d'une liste de familles (« police du PDF, police de secours »), dans l'ordre. */
+  async candidates(family: string, bold: boolean, italic: boolean): Promise<PDFFont[]> {
+    const list = familyList(family)
+    if (list.length <= 1) return [await this.get(family, bold, italic)]
+    const style = styleOf(bold, italic)
+    const out: PDFFont[] = []
+    for (const f of list) {
+      const file = await fontBytes(f, style)
+      if (file) out.push(await this.embed(file))
+    }
+    out.push(await this.get('Liberation Sans', bold, italic))
+    return out
+  }
+
   async get(family: string, bold: boolean, italic: boolean): Promise<PDFFont> {
     const style = styleOf(bold, italic)
     const file = (await fontBytes(family, style)) ?? (await fontBytes('Liberation Sans', style))
-    let f = this.fonts.get(file!.psName)
+    return this.embed(file!)
+  }
+
+  private embed(file: FontFile): Promise<PDFFont> {
+    let f = this.fonts.get(file.psName)
     if (!f) {
       // Sous-ensemble nommé selon la norme PDF : six majuscules + « + » + nom PostScript.
       const tag = Array.from({ length: 6 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('')
-      f = this.out.embedFont(file!.bytes, { subset: true, customName: `${tag}+${file!.psName}` })
-      this.fonts.set(file!.psName, f)
+      // Police reconstruite depuis un PDF (contours CFF) : déjà réduite aux caractères utiles,
+      // intégrée telle quelle (le sous-ensemble CFF de fontkit produit des fichiers invalides).
+      const own = [...registered.values()].includes(file)
+      f = this.out.embedFont(file.bytes, { subset: !own, customName: `${tag}+${file.psName}` })
+      this.fonts.set(file.psName, f)
     }
     return f
   }
@@ -221,10 +257,17 @@ export async function drawTextObject(
   const local = util.multiplyTransformMatrices([1, 0, 0, 1, -pageOrigin.left, -pageOrigin.top], obj.calcTransformMatrix())
   const m = util.multiplyTransformMatrices(display as never, local)
 
-  const embedded = await Promise.all(runs.map((r) => fonts.get(r.family, r.bold, r.italic)))
-  for (const [k, r] of runs.entries()) {
-    const fk = (embedded[k] as unknown as { embedder?: { font?: { hasGlyphForCodePoint?(c: number): boolean } } }).embedder?.font
-    if (fk?.hasGlyphForCodePoint && [...r.text].some((ch) => !/\s/.test(ch) && !fk.hasGlyphForCodePoint!(ch.codePointAt(0)!))) return false
+  // Pour chaque portion : la première police de la liste qui a tous ses caractères
+  // (police d'origine du PDF, puis police de secours) ; aucune → l'objet passe en image.
+  const hasAll = (font: PDFFont, text: string): boolean => {
+    const fk = (font as unknown as { embedder?: { font?: { hasGlyphForCodePoint?(c: number): boolean } } }).embedder?.font
+    return !fk?.hasGlyphForCodePoint || [...text].every((ch) => /\s/.test(ch) || fk.hasGlyphForCodePoint!(ch.codePointAt(0)!))
+  }
+  const embedded: PDFFont[] = []
+  for (const r of runs) {
+    const found = (await fonts.candidates(r.family, r.bold, r.italic)).find((f) => hasAll(f, r.text))
+    if (!found) return false
+    embedded.push(found)
   }
 
   const ops = pdf

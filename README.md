@@ -9,8 +9,13 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
   rendues, par **PDFium** (le moteur PDF de Chrome, en C++ compilé en WebAssembly) dans un fil
   séparé. Les calculs lourds (gomme, formes, TIFF) passent par un **noyau natif en Rust**.
   Voir [docs/AUDIT.md](docs/AUDIT.md).
-- **Modifier le texte d'un PDF** : double-clic sur un paragraphe. L'ancien texte est réellement
-  supprimé, pas caché.
+- **Modifier le texte d'un PDF sans qu'il change d'aspect** : outil *Modifier PDF* (ou double-clic)
+  sur un paragraphe. On garde la police d'origine du PDF (reconstruite à partir de ses glyphes,
+  même quand elle n'est pas installée), la taille, la couleur, les mots en gras ou en italique,
+  les retours à la ligne, le retrait de première ligne, la justification et l'interligne : avant
+  et après, la page est identique tant qu'on ne tape rien. Le texte d'origine est réellement
+  retiré (aucun doublon), et si le paragraphe gagne ou perd des lignes, la suite de sa colonne
+  descend ou remonte, comme dans Word. L'export PDF réintègre la police d'origine.
 - **Ctrl+S enregistre dans le PDF ouvert**. Il reste lisible partout, et Feuillet le rouvre
   entièrement modifiable.
 - **Recherche** (Ctrl+F), **sélection / copie du texte**, **surligneur aimanté aux lignes**,

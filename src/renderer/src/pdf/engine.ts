@@ -1,4 +1,4 @@
-import type { PdfFontInfo, PdfMask, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
+import type { PdfChar, PdfCharFont, PdfGlyphFont, PdfFontInfo, PdfMask, PdfShift, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
 
 /**
  * Accès au moteur PDF natif (PDFium/WASM dans un worker). Les requêtes de rendu
@@ -61,8 +61,31 @@ class PdfEngine {
     await Promise.all([...this.opened.keys()].map((d) => this.close(d)))
   }
 
-  async render(doc: string, page: number, width: number, height: number, masks?: PdfMask[]): Promise<ImageBitmap> {
-    return (await this.call({ op: 'render', doc, page, width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)), masks })).bitmap!
+  async render(doc: string, page: number, width: number, height: number, masks?: PdfMask[], shifts?: PdfShift[]): Promise<ImageBitmap> {
+    return (await this.call({ op: 'render', doc, page, width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)), masks, shifts: shifts?.length ? shifts : undefined })).bitmap!
+  }
+
+  private charCache = new Map<string, Promise<{ chars: PdfChar[]; fonts: PdfCharFont[] }>>()
+
+  /** Caractères d'une page avec position exacte et police (mis en cache). */
+  chars(doc: string, page: number): Promise<{ chars: PdfChar[]; fonts: PdfCharFont[] }> {
+    const key = `${doc}#${page}`
+    let p = this.charCache.get(key)
+    if (!p) {
+      p = this.call({ op: 'chars', doc, page }).then((r) => ({ chars: r.chars ?? [], fonts: r.fonts ?? [] }))
+      this.charCache.set(key, p)
+    }
+    return p
+  }
+
+  /** Contours des glyphes de la police d'un caractère (voir le moteur). */
+  async glyphs(doc: string, page: number, char: number, codepoints: number[], strict: number[]): Promise<PdfGlyphFont | null> {
+    return (await this.call({ op: 'glyphs', doc, page, char, codepoints, strict })).glyphFont ?? null
+  }
+
+  /** Fichier de la police intégrée utilisée par un caractère, ou null. */
+  async fontData(doc: string, page: number, char: number): Promise<Uint8Array | null> {
+    return (await this.call({ op: 'fontdata', doc, page, char })).file ?? null
   }
 
   async fontInfo(doc: string, page: number, x: number, y: number): Promise<PdfFontInfo | null> {
@@ -70,7 +93,7 @@ class PdfEngine {
   }
 
   /** PDF dont le texte des zones masquées est réellement supprimé. */
-  async redacted(doc: string, pages: { page: number; masks: PdfMask[] }[]): Promise<Uint8Array> {
+  async redacted(doc: string, pages: { page: number; masks: PdfMask[]; shifts?: PdfShift[] }[]): Promise<Uint8Array> {
     return (await this.call({ op: 'redacted', doc, pages })).file!
   }
 
@@ -97,6 +120,7 @@ class PdfEngine {
 
   forgetText(): void {
     this.textCache.clear()
+    this.charCache.clear()
   }
 }
 

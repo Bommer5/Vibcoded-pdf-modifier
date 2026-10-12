@@ -31,7 +31,10 @@ class PageRenderer {
 
   key(page: Page): string | null {
     const bg = page.bg
-    if (bg.kind === 'pdf') return `${bg.assetId}#${bg.index}${page.masks?.length ? '#' + JSON.stringify(page.masks) : ''}`
+    if (bg.kind === 'pdf') {
+      const shifts = page.shifts?.filter((s) => s.dy) ?? []
+      return `${bg.assetId}#${bg.index}${page.masks?.length ? '#' + JSON.stringify(page.masks) : ''}${shifts.length ? '#' + JSON.stringify(shifts) : ''}`
+    }
     if (bg.kind === 'image') return bg.assetId
     return null
   }
@@ -123,7 +126,7 @@ class PageRenderer {
       const asset = assets.get(bg.assetId)
       if (!asset) return null
       await pdfEngine.open(bg.assetId, asset.bytes)
-      return pdfEngine.render(bg.assetId, bg.index, w, h, page.masks)
+      return pdfEngine.render(bg.assetId, bg.index, w, h, page.masks, page.shifts?.filter((s) => s.dy))
     }
     if (bg.kind === 'image') {
       const asset = assets.get(bg.assetId)

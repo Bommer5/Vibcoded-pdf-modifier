@@ -1,4 +1,4 @@
-import { Canvas, Point, Rect, Textbox, util, type FabricObject } from 'fabric'
+import { cache as fabricCache, Canvas, Point, Rect, Textbox, util, type FabricObject } from 'fabric'
 import { Table } from './objects/table'
 import './styles/app.css'
 import './core/props'
@@ -35,6 +35,9 @@ import { PdfToolsGuide } from './ui/pdf-tools-guide'
 import { Sidebar } from './ui/sidebar'
 import { TextSelection } from './ui/text-selection'
 import { editTextAt } from './pdf/edit-text'
+import { pdfEngine } from './pdf/engine'
+import { loadObjectFaces } from './pdf/pdf-fonts'
+import { TextFlow } from './pdf/flow'
 import { PAPER_STYLES, type PaperStyle } from './core/paper'
 import type { Page } from './core/page'
 import { settings } from './tools/settings'
@@ -389,6 +392,21 @@ const run = (name: string) => (): void => {
   if (name.startsWith('recent:')) return void session.openRecent(name.slice(7))
   void Promise.resolve(actions[name]?.()).then(refreshButtons)
 }
+// Texte de PDF modifié : ses polices d'origine (reconstruites) reviennent avec lui
+// (réouverture d'un projet, annuler / rétablir, coller).
+canvas.on('object:added', ({ target }) => {
+  const faces = (target as { pdfFonts?: { family: string }[] }).pdfFonts
+  if (!faces?.length) return
+  void loadObjectFaces(target).then((ok) => {
+    if (!ok) return
+    for (const f of faces) fabricCache.clearFontCache(f.family)
+    ;(target as Textbox).initDimensions?.()
+    target.set({ dirty: true })
+    canvas.requestRenderAll()
+  })
+})
+// Paragraphe modifié qui grandit ou rétrécit : la suite de la colonne suit.
+new TextFlow(editor)
 // Outils PDF expliqués sur place (bande d'aide, encadré au survol, grisés sans PDF).
 new PdfToolsGuide(editor, tools, { open: run('open'), writeText: () => setTool('text') })
 // Clic droit : objets sous le pointeur (y compris ceux du dessous) et commandes usuelles.
@@ -586,4 +604,4 @@ const make = {
   rect: (o: object) => new Rect(o),
   table: (rows: number, cols: number) => Table.create(rows, cols)
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine } })

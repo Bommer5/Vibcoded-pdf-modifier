@@ -1,6 +1,7 @@
 import { Group, Rect, type FabricObject } from 'fabric'
 import type { Page } from '../core/page'
 import { pdfEngine } from './engine'
+import { shiftAt } from './flow'
 import type { PdfWord } from './protocol'
 
 /** Mot du PDF en coordonnées document. */
@@ -25,15 +26,11 @@ export async function pageWords(page: Page): Promise<DocWord[]> {
         return !masks.some(([x0, y0, x1, y1]) => cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1)
       })
     : words
-  return visible.map((w, index) => ({
-    ...w,
-    x0: w.x0 + page.left,
-    x1: w.x1 + page.left,
-    y0: w.y0 + page.top,
-    y1: w.y1 + page.top,
-    page,
-    index
-  }))
+  return visible.map((w, index) => {
+    // Contenu décalé sous un paragraphe modifié : les mots suivent.
+    const dy = shiftAt(page, (w.x0 + w.x1) / 2, w.y0)
+    return { ...w, x0: w.x0 + page.left, x1: w.x1 + page.left, y0: w.y0 + page.top + dy, y1: w.y1 + page.top + dy, page, index }
+  })
 }
 
 /** Mot le plus proche d'un point (sur la même ligne de préférence). */

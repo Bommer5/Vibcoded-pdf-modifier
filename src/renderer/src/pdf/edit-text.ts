@@ -1,63 +1,20 @@
-import { Textbox, type Point } from 'fabric'
+import { cache, Textbox, type Point } from 'fabric'
 import type { Editor } from '../core/editor'
 import type { Page } from '../core/page'
 import { pdfEngine } from './engine'
-import { nearestWord, pageWords, type DocWord } from './text'
+import { originalY, shiftAt } from './flow'
+import { embeddedFace, type EmbeddedFace } from './pdf-fonts'
+import type { PdfChar, PdfCharFont } from './protocol'
+import { nearestWord, pageWords } from './text'
 
 /**
- * Modifier le texte d'origine d'un PDF (ou d'un document Word/ODT importé, converti en PDF).
- * Un clic sur un paragraphe le transforme en zone de texte modifiable, avec sa taille,
- * sa couleur, sa graisse et la police la plus proche disponible. Le texte d'origine est
- * réellement retiré du PDF (à l'écran et à l'export), pas seulement caché.
+ * Modifier le texte d'origine d'un PDF (ou d'un document Word/ODT converti en PDF), sans
+ * qu'il change d'aspect : un clic sur un paragraphe le remplace par une zone de texte
+ * identique — même police (celle du PDF, reconstruite), même taille, même couleur, mots en
+ * gras ou en italique gardés, mêmes retours à la ligne, même retrait de première ligne,
+ * même alignement (justifié compris) et même interligne. On ne modifie que ce qu'on tape.
+ * Le texte d'origine est réellement retiré du PDF (à l'écran et à l'export).
  */
-export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> {
-  const page = ed.doc.pageAt(p)
-  if (!page || page.bg.kind !== 'pdf') return null
-  const words = await pageWords(page)
-  const hit = nearestWord(words, p.x, p.y)
-  if (!hit || p.x < hit.x0 - 4 || p.x > hit.x1 + 4 || p.y < hit.y0 - 4 || p.y > hit.y1 + 4) return null
-
-  const block = paragraphOf(words, hit)
-  const lines = groupLines(block)
-  const rect = {
-    x0: Math.min(...block.map((w) => w.x0)),
-    y0: Math.min(...block.map((w) => w.y0)),
-    x1: Math.max(...block.map((w) => w.x1)),
-    y1: Math.max(...block.map((w) => w.y1))
-  }
-  const info = await pdfEngine.fontInfo(page.bg.assetId, page.bg.index, (hit.x0 + hit.x1) / 2 - page.left, (hit.y0 + hit.y1) / 2 - page.top)
-  const height = hit.y1 - hit.y0
-  const fontSize = info?.fontSize && info.fontSize > 1 ? info.fontSize : height / 1.15
-  const pitch = lines.length > 1 ? (lines.at(-1)![0].y0 - lines[0][0].y0) / (lines.length - 1) : fontSize * 1.2
-  const rights = lines.map((l) => l.at(-1)!.x1)
-  const justified = lines.length > 2 && rights.slice(0, -1).every((r) => Math.abs(r - rect.x1) < fontSize * 0.6)
-
-  const box = new Textbox(joinLines(lines), {
-    left: rect.x0,
-    top: rect.y0 - fontSize * 0.12,
-    width: rect.x1 - rect.x0 + fontSize * 0.6,
-    fontSize,
-    fontFamily: closestFont(info?.fontName ?? ''),
-    fontWeight: info?.bold ? 'bold' : 'normal',
-    fontStyle: info?.italic ? 'italic' : 'normal',
-    fill: info?.color ?? '#000000',
-    lineHeight: Math.round(Math.min(3, Math.max(1, pitch / (fontSize * 1.13))) * 20) / 20,
-    // Comme Word : justifié sauf la dernière ligne du paragraphe.
-    textAlign: justified ? 'justify-left' : 'left',
-    splitByGrapheme: false
-  })
-  box.set({ pdfEdit: true } as never)
-  const mask: [number, number, number, number] = [rect.x0 - page.left - 1, rect.y0 - page.top - 1, rect.x1 - page.left + 1, rect.y1 - page.top + 1]
-  await ed.history.transaction(() => {
-    page.set({ masks: [...(page.masks ?? []), mask] } as never)
-    ed.add(box)
-  })
-  ed.canvas.setActiveObject(box)
-  box.enterEditing()
-  box.hiddenTextarea?.focus()
-  ed.canvas.requestRenderAll()
-  return box
-}
 
 export interface Box4 {
   x0: number
@@ -66,20 +23,189 @@ export interface Box4 {
   y1: number
 }
 
-/** Paragraphe du PDF sous un point (pour l'encadrer au survol), ou null. */
-export async function paragraphAt(ed: Editor, p: Point): Promise<Box4 | null> {
+/** Ligne (ou morceau de ligne, si colonnes) de texte du PDF, en coordonnées de la page. */
+interface Line {
+  chars: PdfChar[]
+  /** Origine (point de départ du dessin) du premier caractère : là où le texte commence vraiment. */
+  start: number
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+  baseline: number
+  size: number
+  font: number
+}
+
+const isSpace = (c: PdfChar): boolean => /\s/.test(c.c)
+
+function mode<T>(values: T[]): T {
+  const count = new Map<T, number>()
+  let best = values[0]
+  for (const v of values) {
+    const n = (count.get(v) ?? 0) + 1
+    count.set(v, n)
+    if (n > (count.get(best) ?? 0)) best = v
+  }
+  return best
+}
+
+/**
+ * Ligatures (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ, ﬅ, ﬆ) → lettres séparées, réparties sur la largeur du glyphe :
+ * le texte modifiable contient « fi » (on peut taper, chercher, corriger normalement).
+ */
+function splitLigatures(chars: PdfChar[]): PdfChar[] {
+  if (!chars.some((c) => c.c >= '\ufb00' && c.c <= '\ufb06')) return chars
+  const out: PdfChar[] = []
+  for (const c of chars) {
+    const letters = c.c >= '\ufb00' && c.c <= '\ufb06' ? [...c.c.normalize('NFKC')] : [c.c]
+    if (letters.length === 1) {
+      out.push(c)
+      continue
+    }
+    const w = (c.x1 - c.x0) / letters.length
+    letters.forEach((l, k) => out.push({ ...c, c: l, x: c.x + w * k, x0: c.x0 + w * k, x1: c.x0 + w * (k + 1) }))
+  }
+  return out
+}
+
+function finishLine(chars: PdfChar[]): Line | null {
+  const ink = chars.filter((c) => !isSpace(c))
+  if (!ink.length) return null
+  const ys = ink.map((c) => c.y).sort((a, b) => a - b)
+  return {
+    chars,
+    start: ink[0].x,
+    x0: Math.min(...ink.map((c) => c.x0)),
+    x1: Math.max(...ink.map((c) => c.x1)),
+    y0: Math.min(...ink.map((c) => c.y0)),
+    y1: Math.max(...ink.map((c) => c.y1)),
+    baseline: ys[Math.floor(ys.length / 2)],
+    size: mode(ink.map((c) => Math.round(c.size * 10) / 10)),
+    font: mode(ink.map((c) => c.f))
+  }
+}
+
+/** Lignes de la page dans l'ordre de lecture ; une ligne est coupée là où il y a un grand vide (colonnes). */
+function linesOf(chars: PdfChar[]): Line[] {
+  const out: Line[] = []
+  let cur: PdfChar[] = []
+  let last: PdfChar | null = null
+  const flush = (): void => {
+    const l = finishLine(cur)
+    if (l) out.push(l)
+    cur = []
+    last = null
+  }
+  for (const c of chars) {
+    if (c.c === '\n' || c.c === '\r') {
+      flush()
+      continue
+    }
+    if (last && !isSpace(c)) {
+      const size = Math.max(c.size, last.size, 1)
+      const newLine = Math.abs(c.y - last.y) > size * 0.4 || c.x0 < last.x0 - size
+      const column = c.x0 - last.x1 > size * 3
+      if (newLine || column) flush()
+    }
+    cur.push(c)
+    if (!isSpace(c)) last = c
+  }
+  flush()
+  return out
+}
+
+/** Famille sans graisse ni style (« DejaVuSerif-Bold » et « DejaVuSerif » vont ensemble). */
+const familyKey = (f: PdfCharFont | undefined): string =>
+  (f?.family || f?.name || '').replace(/[-,]?(bold|italic|oblique|semibold|demi|black|regular|medium|light)\b/gi, '').toLowerCase()
+
+/**
+ * Paragraphe autour d'une ligne : lignes voisines de même police et même taille, qui se
+ * chevauchent, à interligne régulier. On s'arrête à un retrait (nouveau paragraphe), à
+ * un espace plus grand (espacement de paragraphe) ou après une ligne courte d'un texte justifié.
+ */
+function paragraph(lines: Line[], hit: Line, fonts: PdfCharFont[]): Line[] {
+  const same = (l: Line): boolean =>
+    l !== hit &&
+    Math.abs(l.size - hit.size) <= hit.size * 0.1 &&
+    familyKey(fonts[l.font]) === familyKey(fonts[hit.font]) &&
+    Math.min(l.x1, hit.x1) - Math.max(l.x0, hit.x0) > Math.min(l.x1 - l.x0, hit.x1 - hit.x0) * 0.3
+  const others = lines.filter(same)
+  const block = [hit]
+  let pitch = 0
+  const right = (): number => Math.max(...block.map((l) => l.x1))
+  const justified = (): boolean => block.length >= 2 && block.slice(0, -1).filter((l) => Math.abs(l.x1 - right()) < 1.5).length >= 1
+  // Vers le bas
+  for (;;) {
+    const last = block.at(-1)!
+    const next = others.filter((l) => l.baseline > last.baseline + last.size * 0.5).sort((a, b) => a.baseline - b.baseline)[0]
+    if (!next) break
+    const gap = next.baseline - last.baseline
+    if (gap > last.size * 1.9 || (pitch && Math.abs(gap - pitch) > pitch * 0.15)) break
+    if (next.x0 > last.x0 + last.size * 0.6) break // retrait : nouveau paragraphe
+    if (justified() && last.x1 < right() - last.size * 1.5) break // ligne courte : fin de paragraphe
+    pitch ||= gap
+    block.push(next)
+  }
+  // Vers le haut
+  for (;;) {
+    const first = block[0]
+    const prev = others.filter((l) => l.baseline < first.baseline - first.size * 0.5).sort((a, b) => b.baseline - a.baseline)[0]
+    if (!prev) break
+    const gap = first.baseline - prev.baseline
+    if (gap > first.size * 1.9 || (pitch && Math.abs(gap - pitch) > pitch * 0.15)) break
+    if (first.x0 > prev.x0 + first.size * 0.6) break // la ligne du dessous est en retrait : elle commence le paragraphe
+    const r = Math.max(right(), prev.x1)
+    if (block.length >= 2 && prev.x1 < r - first.size * 1.5 && Math.abs(block[0].x1 - r) < 1.5) break // ligne courte au-dessus
+    pitch ||= gap
+    block.unshift(prev)
+  }
+  return block
+}
+
+interface Found {
+  page: Page
+  chars: PdfChar[]
+  fonts: PdfCharFont[]
+  lines: Line[]
+}
+
+/** Paragraphe du PDF sous un point (coordonnées document), ou null. */
+async function blockAt(ed: Editor, p: Point): Promise<Found | null> {
   const page = ed.doc.pageAt(p)
   if (!page || page.bg.kind !== 'pdf') return null
-  const words = await pageWords(page)
-  const hit = nearestWord(words, p.x, p.y)
-  if (!hit || p.x < hit.x0 - 4 || p.x > hit.x1 + 4 || p.y < hit.y0 - 4 || p.y > hit.y1 + 4) return null
-  const block = paragraphOf(words, hit)
+  const { chars, fonts } = await pdfEngine.chars(page.bg.assetId, page.bg.index)
+  // Les zones déjà modifiées n'ont plus de texte d'origine.
+  const masks = page.masks ?? []
+  const visible = masks.length
+    ? chars.filter((c) => !masks.some(([x0, y0, x1, y1]) => (c.x0 + c.x1) / 2 >= x0 && (c.x0 + c.x1) / 2 <= x1 && (c.y0 + c.y1) / 2 >= y0 && (c.y0 + c.y1) / 2 <= y1))
+    : chars
+  // Le contenu d'origine a pu être décalé (paragraphe modifié plus haut) : on raisonne
+  // en coordonnées d'origine.
+  const x = p.x - page.left
+  const y = originalY(page, x, p.y - page.top)
+  const lines = linesOf(splitLigatures(visible))
+  const hit = lines.find((l) => x >= l.x0 - 3 && x <= l.x1 + 3 && y >= l.y0 - 3 && y <= l.y1 + 3)
+  if (!hit) return null
+  return { page, chars: splitLigatures(visible), fonts, lines: paragraph(lines, hit, fonts) }
+}
+
+function rectOf(lines: Line[]): Box4 {
   return {
-    x0: Math.min(...block.map((w) => w.x0)),
-    y0: Math.min(...block.map((w) => w.y0)),
-    x1: Math.max(...block.map((w) => w.x1)),
-    y1: Math.max(...block.map((w) => w.y1))
+    x0: Math.min(...lines.map((l) => l.x0)),
+    y0: Math.min(...lines.map((l) => l.y0)),
+    x1: Math.max(...lines.map((l) => l.x1)),
+    y1: Math.max(...lines.map((l) => l.y1))
   }
+}
+
+/** Paragraphe du PDF sous un point (pour l'encadrer au survol), en coordonnées document. */
+export async function paragraphAt(ed: Editor, p: Point): Promise<Box4 | null> {
+  const found = await blockAt(ed, p)
+  if (!found) return null
+  const r = rectOf(found.lines)
+  const dy = shiftAt(found.page, (r.x0 + r.x1) / 2, r.y0)
+  return { x0: r.x0 + found.page.left, y0: r.y0 + found.page.top + dy, x1: r.x1 + found.page.left, y1: r.y1 + found.page.top + dy }
 }
 
 /** Mot du PDF sous un point, ou null. */
@@ -91,48 +217,52 @@ export async function wordAt(ed: Editor, p: Point): Promise<Box4 | null> {
   return hit
 }
 
-function groupLines(words: DocWord[]): DocWord[][] {
-  const map = new Map<number, DocWord[]>()
-  for (const w of words) map.set(w.line, [...(map.get(w.line) ?? []), w])
-  return [...map.values()].map((l) => l.sort((a, b) => a.x0 - b.x0)).sort((a, b) => a[0].y0 - b[0].y0)
+type Align = 'left' | 'center' | 'right' | 'justify-left'
+
+/** Alignement d'après les bords des lignes (la première peut être en retrait, la dernière plus courte). */
+function alignmentOf(lines: Line[]): Align {
+  if (lines.length < 2) return 'left'
+  const tol = 1.5
+  const rest = lines.slice(1)
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < tol
+  const right = Math.max(...lines.map((l) => l.x1))
+  const leftsAligned = rest.every((l) => near(l.x0, rest[0].x0))
+  const rightsBody = lines.slice(0, -1).every((l) => near(l.x1, right))
+  // Justifié : les lignes pleines ont des espaces élargis par rapport à la dernière ligne.
+  if (leftsAligned && rightsBody && lines.length >= 2) {
+    const body = lines.slice(0, -1).map(spaceWidth).filter((w) => w > 0)
+    const last = spaceWidth(lines.at(-1)!)
+    if (body.length && last > 0) return Math.min(...body) > last * 1.08 ? 'justify-left' : 'left'
+    return lines.length >= 3 ? 'justify-left' : 'left'
+  }
+  if (leftsAligned) return 'left'
+  if (lines.every((l) => near(l.x1, right))) return 'right'
+  const c = (l: Line): number => (l.x0 + l.x1) / 2
+  if (lines.every((l) => near(c(l), c(lines[0])))) return 'center'
+  return 'left'
 }
 
-/** Paragraphe autour d'un mot : lignes voisines proches, de même taille, qui se chevauchent horizontalement. */
-function paragraphOf(words: DocWord[], hit: DocWord): DocWord[] {
-  const lines = groupLines(words.filter((w) => w.page === hit.page))
-  const box = (l: DocWord[]) => ({ x0: Math.min(...l.map((w) => w.x0)), x1: Math.max(...l.map((w) => w.x1)), y0: Math.min(...l.map((w) => w.y0)), y1: Math.max(...l.map((w) => w.y1)) })
-  const start = lines.findIndex((l) => l.includes(hit))
-  const fits = (a: DocWord[], b: DocWord[]): boolean => {
-    const A = box(a)
-    const B = box(b)
-    const ha = A.y1 - A.y0
-    const hb = B.y1 - B.y0
-    const gap = Math.max(B.y0 - A.y1, A.y0 - B.y1)
-    const overlap = Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0)
-    return Math.abs(ha - hb) < Math.max(ha, hb) * 0.3 && gap < Math.max(ha, hb) * 0.9 && overlap > Math.min(A.x1 - A.x0, B.x1 - B.x0) * 0.4
+/** Largeur moyenne des espaces entre mots d'une ligne (en fraction de la taille), 0 si aucun. */
+function spaceWidth(l: Line): number {
+  const ink = l.chars.filter((c) => !isSpace(c))
+  let total = 0
+  let n = 0
+  for (let i = 0; i + 1 < l.chars.length; i++) {
+    if (!isSpace(l.chars[i])) continue
+    const before = ink.filter((c) => c.x <= l.chars[i].x).at(-1)
+    const after = ink.find((c) => c.x > l.chars[i].x)
+    if (!before || !after) continue
+    total += (after.x0 - before.x1) / l.size
+    n++
   }
-  let lo = start
-  let hi = start
-  while (lo > 0 && fits(lines[lo - 1], lines[lo])) lo--
-  while (hi < lines.length - 1 && fits(lines[hi], lines[hi + 1])) hi++
-  return lines.slice(lo, hi + 1).flat()
+  return n ? total / n : 0
 }
 
-/** Recompose le paragraphe (les césures de fin de ligne sont recollées). */
-function joinLines(lines: DocWord[][]): string {
-  let out = ''
-  for (const line of lines) {
-    const text = line.map((w) => w.text).join(' ')
-    if (!out) out = text
-    else if (/[a-zà-ÿ]-$/i.test(out)) out = out.slice(0, -1) + text
-    else out += ' ' + text
-  }
-  return out
-}
+/** Texte d'une ligne (espaces de début et de fin retirés). */
+const lineText = (l: Line): string => l.chars.map((c) => c.c).join('').trim()
 
 const installed = new Map<string, boolean>()
 
-/** Police installée sur l'appareil ? (comparaison de largeurs avec les polices génériques) */
 function isInstalled(family: string): boolean {
   if (installed.has(family)) return installed.get(family)!
   const ctx = document.createElement('canvas').getContext('2d')!
@@ -149,15 +279,171 @@ function isInstalled(family: string): boolean {
 }
 
 /** Nom de police PDF (« ABCDEF+Calibri-Bold », « TimesNewRomanPSMT »…) → police affichable la plus proche. */
-export function closestFont(pdfName: string): string {
+export function closestFont(pdfName: string, family = ''): string {
   const base = pdfName.replace(/^[A-Z]{6}\+/, '').replace(/[-,].*$/, '').replace(/(PS)?MT$/, '')
   const spaced = base.replace(/([a-z])([A-Z])/g, '$1 $2')
-  for (const candidate of [base, spaced]) if (candidate && isInstalled(candidate)) return candidate
-  const n = pdfName.toLowerCase()
+  for (const candidate of [family, base, spaced]) if (candidate && isInstalled(candidate)) return candidate
+  const n = `${family} ${pdfName}`.toLowerCase()
   if (/courier|mono|consol|menlo/.test(n)) return 'Courier New'
-  if (/times|roman|georgia|garamond|cambria|book|minion|palatino|serif/.test(n) && !/sans/.test(n)) return 'Times New Roman'
   if (/calibri|carlito/.test(n)) return isInstalled('Carlito') ? 'Carlito' : 'Arial'
+  if (/cambria|caladea/.test(n)) return isInstalled('Caladea') ? 'Caladea' : 'Times New Roman'
+  if (/times|roman|georgia|garamond|book|minion|palatino|serif/.test(n) && !/sans/.test(n)) return 'Times New Roman'
   return 'Arial'
+}
+
+/** Position de la ligne de base de la première ligne d'une zone de texte Fabric, depuis son haut. */
+const baselineOffset = (size: number): number => size * 1.13 * (1 - 0.222)
+
+export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> {
+  const found = await blockAt(ed, p)
+  if (!found || found.page.bg.kind !== 'pdf') return null
+  const { page, lines, fonts, chars } = found
+  const bg = page.bg as { assetId: string; index: number }
+
+  // Polices d'origine (reconstruites depuis le PDF) de tous les caractères du paragraphe.
+  const used = new Map<number, Set<number>>()
+  for (const c of chars) {
+    if (c.f < 0) continue
+    if (!used.has(c.f)) used.set(c.f, new Set())
+    used.get(c.f)!.add(c.c.codePointAt(0)!)
+  }
+  // Avance réelle de chaque caractère dans la page (en millièmes d'em) : un glyphe qui ne
+  // correspond pas (ligature « fi » rendue pour « f »…) est laissé à la police de secours.
+  const advances = new Map<number, Map<number, number[]>>()
+  for (const l of linesOf(chars)) {
+    for (let i = 0; i + 1 < l.chars.length; i++) {
+      const a = l.chars[i]
+      const b = l.chars[i + 1]
+      if (a.f < 0 || a.f !== b.f || isSpace(a) || a.size <= 0) continue
+      if (!advances.has(a.f)) advances.set(a.f, new Map())
+      const m = advances.get(a.f)!
+      const u = a.c.codePointAt(0)!
+      if (!m.has(u)) m.set(u, [])
+      m.get(u)!.push(((b.x - a.x) / a.size) * 1000)
+    }
+  }
+  const keys = [...new Set(lines.flatMap((l) => l.chars.map((c) => c.f)).filter((f) => f >= 0))]
+  const faces = new Map<number, EmbeddedFace | null>()
+  await Promise.all(keys.map(async (k) => faces.set(k, await embeddedFace(bg.assetId, bg.index, fonts[k], used.get(k) ?? [], advances.get(k)))))
+  const familyOf = (k: number): string => {
+    const f = fonts[k]
+    const fallback = closestFont(f?.name ?? '', f?.family ?? '')
+    const face = faces.get(k)
+    return face ? `'${face.family}', '${fallback}'` : fallback
+  }
+  for (const face of faces.values()) if (face) cache.clearFontCache(face.family)
+
+  // Texte : lignes recollées par des espaces (le retour automatique les recoupera au même
+  // endroit) ; après un trait d'union en fin de ligne, on garde le retour tel quel.
+  const parts: { text: string; chars: PdfChar[] }[] = []
+  lines.forEach((l, i) => {
+    const t = lineText(l)
+    const sep = i === lines.length - 1 ? '' : /[-‐]$/.test(t) ? '\n' : ' '
+    parts.push({ text: t + sep, chars: l.chars })
+  })
+  const text = parts.map((p2) => p2.text).join('')
+
+  const main = mode(lines.flatMap((l) => l.chars.filter((c) => !isSpace(c)).map((c) => c.f)))
+  const mainFont = fonts[main]
+  const size = mode(lines.map((l) => l.size))
+  const color = mode(lines.flatMap((l) => l.chars.filter((c) => !isSpace(c)).map((c) => c.color)))
+  const align = alignmentOf(lines)
+  const body = lines.length > 1 ? lines.slice(1) : lines
+  // Bord gauche : origine des caractères (et non leur boîte), comme le dessin de la police.
+  const left = align === 'left' || align === 'justify-left' ? Math.min(...body.map((l) => l.start)) : Math.min(...lines.map((l) => l.start))
+  const right = Math.max(...lines.map((l) => l.x1))
+  const firstIndent = (align === 'left' || align === 'justify-left') && lines.length > 1 && Math.abs(lines[0].start - left) > 1 ? lines[0].start - left : 0
+  const pitch = lines.length > 1 ? (lines.at(-1)!.baseline - lines[0].baseline) / (lines.length - 1) : size * 1.16 * 1.13
+  // Largeur : celle du paragraphe, à peine plus (le retour à la ligne retombe aux mêmes mots).
+  const width = Math.max(10, right - left + (align === 'justify-left' ? 0 : 0.5 + size * 0.02))
+
+  const r0 = rectOf(lines)
+  const shifted = shiftAt(page, (r0.x0 + r0.x1) / 2, r0.y0)
+  const box = new Textbox(text, {
+    left: page.left + left,
+    top: page.top + lines[0].baseline - baselineOffset(size) + shifted,
+    width,
+    fontSize: size,
+    fontFamily: familyOf(main),
+    fontWeight: mainFont?.bold ? 'bold' : 'normal',
+    fontStyle: mainFont?.italic ? 'italic' : 'normal',
+    fill: color,
+    lineHeight: Math.min(4, Math.max(0.5, pitch / (size * 1.13))),
+    textAlign: align,
+    splitByGrapheme: false,
+    // Pas de bordure : sinon Fabric décale le contenu d'une demi-épaisseur.
+    strokeWidth: 0
+  })
+  box.set({ firstIndent, pdfEdit: true, pdfFonts: [...faces.values()].filter(Boolean) } as never)
+
+  // Caractères dans une autre police (mot en gras…), une autre taille ou une autre couleur.
+  let offset = 0
+  for (const part of parts) {
+    const ink = part.chars.filter((c) => !isSpace(c))
+    let k = 0
+    for (const ch of [...part.text.trimEnd()]) {
+      if (/\s/.test(ch)) {
+        offset++
+        continue
+      }
+      const c = ink[k++]
+      if (c && (c.f !== main || Math.abs(c.size - size) > 0.05 || c.color !== color)) {
+        const f = fonts[c.f]
+        box.setSelectionStyles(
+          { fontFamily: familyOf(c.f), fontWeight: f?.bold ? 'bold' : 'normal', fontStyle: f?.italic ? 'italic' : 'normal', fontSize: c.size, fill: c.color },
+          offset,
+          offset + 1
+        )
+      }
+      offset++
+    }
+    offset += part.text.length - part.text.trimEnd().length
+  }
+  box.initDimensions()
+
+  // Contrôle : mêmes retours à la ligne que l'original ; sinon on ajuste l'espacement des
+  // lettres (police de secours un peu plus large ou plus étroite), puis on fige les retours.
+  const sameBreaks = (): boolean => box._textLines.length === lines.length && box._textLines.every((l, i) => l.join('').trim() === lineText(lines[i]))
+  if (!sameBreaks()) {
+    const natural = lines.map((l, i) => (i === lines.length - 1 || align !== 'justify-left' ? l.x1 - l.x0 : 0))
+    const measured = lines.map((l) => measure(box, lineText(l)))
+    let diff = 0
+    let n = 0
+    lines.forEach((l, i) => {
+      if (!natural[i] || !measured[i]) return
+      diff += natural[i] - measured[i]
+      n += [...lineText(l)].length
+    })
+    if (n) box.set({ charSpacing: Math.max(-200, Math.min(200, (diff / n / size) * 1000)) })
+    box.initDimensions()
+    if (!sameBreaks()) {
+      box.set({ text: lines.map(lineText).join('\n'), width: width + size * 2 })
+      box.initDimensions()
+    }
+  }
+
+  // Si le paragraphe gagne ou perd des lignes, la suite de sa colonne suivra (voir flow.ts).
+  const r = rectOf(lines)
+  box.set({ pdfFlow: { id: crypto.randomUUID(), pageId: page.pageId, x0: r.x0 - 2, x1: r.x1 + 2, y: r.y1 + 0.5, h0: box.getScaledHeight() } } as never)
+  // Le texte d'origine est retiré du PDF : la zone exacte des caractères du paragraphe.
+  const mask: [number, number, number, number] = [r.x0 - 0.5, r.y0 - 0.5, r.x1 + 0.5, r.y1 + 0.5]
+  await ed.history.transaction(() => {
+    page.set({ masks: [...(page.masks ?? []), mask] } as never)
+    ed.add(box)
+  })
+  ed.canvas.setActiveObject(box)
+  box.enterEditing()
+  box.hiddenTextarea?.focus()
+  ed.canvas.requestRenderAll()
+  return box
+}
+
+/** Largeur d'un texte avec la police et la taille de la zone (sans espacement des lettres). */
+const measureCtx = document.createElement('canvas').getContext('2d')!
+function measure(box: Textbox, text: string): number {
+  const ctx = measureCtx
+  ctx.font = `${box.fontStyle} ${box.fontWeight} ${box.fontSize}px ${box.fontFamily.includes(',') ? box.fontFamily : `"${box.fontFamily}"`}`
+  return ctx.measureText(text).width
 }
 
 export type { Page }

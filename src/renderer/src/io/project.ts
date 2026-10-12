@@ -21,6 +21,7 @@ type JsonObject = Record<string, unknown> & {
   assetId?: string
   bg?: { assetId?: string }
   pdfPage?: { assetId?: string }
+  pdfFonts?: { asset?: string }[]
 }
 
 function walk(objects: JsonObject[] | undefined, fn: (o: JsonObject) => void): void {
@@ -43,6 +44,8 @@ export async function saveProject(
     if (o.bg?.assetId) used.add(o.bg.assetId)
     // Page de PDF insérée comme image : on garde aussi le PDF d'origine (export vectoriel).
     if (o.pdfPage?.assetId) used.add(o.pdfPage.assetId)
+    // Polices d'origine reconstruites d'un texte de PDF modifié.
+    for (const f of o.pdfFonts ?? []) if (f.asset) used.add(f.asset)
     if (o.assetId) delete o.src // l'URL blob n'a pas de sens hors de la session
   })
   const zip = new JSZip()

@@ -100,10 +100,13 @@ export class Importer {
       const map = (s.selfSource ?? null) as Record<string, number> | null
       if (!map) return // ancien format : le PDF d'origine était joint au projet
       for (const o of s.objects ?? []) {
+        // Les décalages sont déjà dans le PDF reconstitué : on repart de cet état.
+        delete o.pdfFlow
         const bg = o.bg as { kind?: string; assetId?: string; index?: number } | undefined
         if (o.type === 'Page' && bg?.kind === 'pdf' && typeof map[o.pageId as string] === 'number') {
           o.bg = { kind: 'pdf', assetId: source.id, index: map[o.pageId as string] }
           o.masks = [] // le texte modifié est déjà retiré du PDF d'origine reconstitué
+          o.shifts = [] // et le contenu déjà décalé
         }
       }
     })

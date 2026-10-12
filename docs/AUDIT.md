@@ -55,6 +55,7 @@ Figma, Inkscape) et réponse apportée :
 | Outils PDF incompris (« ça ne marche pas », « ça entoure tout seul ») | Noms explicites (Annoter PDF, Modifier PDF), intitulé « PDF », encadré au survol avec l'action, bande d'aide, grisés sans PDF avec le bon raccourci (« Écrire du texte ») |
 | On pouvait écrire hors de la page (rien n'y est exporté) | Écriture limitée aux pages : curseur « interdit » dehors, traits coupés au bord, formes et tableaux gardés dans la page |
 | Sur téléphone, seules les formes rectangulaires étaient accessibles | Choix de la forme et du remplissage dans la barre rapide |
+| Texte de PDF modifié : autre police, lignes fusionnées, retrait et justification perdus, texte en double | Police d'origine reconstruite depuis les glyphes du PDF, paragraphe reconstruit caractère par caractère (retrait, justification, interligne, gras), texte d'origine retiré ou recouvert, suite de la colonne décalée si le paragraphe change de taille — testé : rendu avant/après identique à 1 % près |
 | Astuces envahissantes | Affichées au début, fermées pour de bon par « Compris » ; panneau Page à la place |
 | PDF inséré au mauvais format (paysage / portrait) | Dialogue : image redimensionnable, pages au format du PDF ou du document, choix des pages |
 
@@ -66,9 +67,11 @@ de 2×, impression testée automatiquement, interface téléphone, PDF protégé
 passe, barre de mise en forme du texte façon Word (listes, niveaux, espacement des
 paragraphes).
 
-- **Modification du texte d'origine** : la police exacte n'est pas réutilisée quand elle
-  n'est pas installée (on prend la plus proche). Les mises en page complexes (colonnes
-  imbriquées, texte tourné) ne sont pas regroupées parfaitement en paragraphes.
+- **Modification du texte d'origine** : un caractère absent de la police du PDF (sous-ensemble)
+  est écrit avec la police la plus proche ; le crénage d'origine n'est pas repris (écarts
+  d'un demi-point au plus) ; le texte tourné n'est pas pris en charge ; un objet texte du PDF
+  à cheval sur deux paragraphes est recouvert (il reste dans le PDF, invisible) ; un
+  paragraphe qui s'allonge ne passe pas à la page suivante.
 - **Mise en forme du texte** : l'interligne, l'alignement et l'espacement des paragraphes
   s'appliquent à toute la zone de texte (Word les règle paragraphe par paragraphe). Pas de
   tabulations ni de retraits de première ligne. Les listes sont du texte (puce + espace
@@ -81,7 +84,7 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **190 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  **209 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
   PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
   superposés, insertion de PDF.
 - `npm run test:mobile` : **17 vérifications** sur un téléphone simulé (Pixel 7, tactile).
