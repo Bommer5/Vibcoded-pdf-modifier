@@ -100,7 +100,14 @@ export class History {
 
   private serialize(o: Tracked): string {
     // _toObject replace les objets d'une sélection multiple dans le repère du document.
-    const json = JSON.stringify((this.canvas as unknown as { _toObject(o: FabricObject, m: string, p: string[]): object })._toObject(o, 'toObject', []))
+    const data = (this.canvas as unknown as { _toObject(o: FabricObject, m: string, p: string[]): Record<string, unknown> })._toObject(o, 'toObject', [])
+    // Pendant l'écriture, Fabric rend le texte non sélectionnable : on garde l'état normal,
+    // sinon sortir de l'écriture créerait une étape d'annulation parasite.
+    const saved = (o as unknown as { isEditing?: boolean; _savedProps?: Record<string, unknown> })._savedProps
+    if ((o as unknown as { isEditing?: boolean }).isEditing && saved) {
+      for (const k of ['selectable', 'hoverCursor', 'hasControls', 'lockMovementX', 'lockMovementY'] as const) if (k in data) data[k] = saved[k]
+    }
+    const json = JSON.stringify(data)
     o.__histDirty = false
     return json
   }

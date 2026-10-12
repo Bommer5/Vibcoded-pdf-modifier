@@ -24,7 +24,14 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
 - **Surligneur**, **gomme** (partielle ou trait entier ; le bout gomme du stylet est reconnu)
 - **Formes** : ligne, flèche, rectangle, ellipse, triangle
 - **Texte** façon Word. Avec l'outil Texte : un **clic** crée un texte, un **glisser** crée une zone
-  rectangulaire, et **entourer une zone à main levée** fait épouser au texte la forme dessinée
+  rectangulaire, et **entourer une zone à main levée** fait épouser au texte la forme dessinée.
+  Une **barre de mise en forme** apparaît au-dessus de la page, rangée comme l'onglet Accueil de
+  Word : *Police* (police, taille tapable, A+ / A−, effacer la mise en forme) · *Caractères*
+  (gras, italique, souligné, barré, indice, exposant, couleur ▾, surlignage ▾) · *Paragraphe*
+  (puces ▾ et numérotation ▾ avec bibliothèque de styles et niveaux, alignements, menu
+  « Interligne et espacement » ▾ : interligne et **espace entre paragraphes / éléments de liste**).
+  Comme dans Word, curseur dans un mot = tout le mot ; Entrée continue la liste, Entrée sur un
+  élément vide la termine, Tab / Maj+Tab change de niveau, les numéros se recalculent seuls
 - **Lasso** (L), **reconnaissance de formes** (gardez le stylet immobile en fin de tracé),
   **barre rapide** : tailles fin / moyen / épais, `[` et `]`, couleurs favorites
 - **Tableaux** (double-clic sur une cellule, Tab pour passer à la suivante) et **graphiques**
@@ -75,6 +82,11 @@ La CI GitHub Actions (`.github/workflows/build.yml`) construit à chaque push l'
 | Formes / Texte / Main | R / T / H |
 | Ligne droite (stylo, surligneur) | Maj, ou stylet immobile en fin de trait |
 | Gras / Italique / Souligné (en écrivant) | Ctrl+B / Ctrl+I / Ctrl+U |
+| Gauche / Centré / Droite / Justifié | Ctrl+L / Ctrl+E / Ctrl+R / Ctrl+J |
+| Taille de police + / − | Ctrl+Maj+> / Ctrl+Maj+< (ou Ctrl+] / Ctrl+[) |
+| Exposant / Indice | Ctrl+Maj++ / Ctrl+= |
+| Liste à puces / niveau de liste | Ctrl+Maj+L / Tab, Maj+Tab |
+| Effacer la mise en forme | Ctrl+Espace |
 | Lasso / Sélection de texte / Modifier le texte du PDF | L / X / M (ou double-clic) |
 | Rechercher / Aller à la page | Ctrl+F / G ou Ctrl+Maj+N |
 | Page suivante / précédente / début / fin | Pg. suiv. / Pg. préc. / Début / Fin |

@@ -49,6 +49,30 @@ export class Sidebar {
     ed.canvas.on('object:removed', ({ target }) => this.markDirty(target))
     layers.onChange(() => this.tab === 'layers' && this.render())
     this.show('pages')
+    // Sur téléphone, le panneau est un tiroir : un toucher en dehors le referme (sans dessiner).
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.visible || !this.isDrawer) return
+      const el = e.target as HTMLElement
+      if (this.root.contains(el) || el.closest('[data-action=toggle-sidebar]')) return
+      e.preventDefault()
+      e.stopPropagation()
+      this.toggle(false)
+      // Avale tout le geste (toucher et souris émulée) pour qu'il ne trace rien sur la page.
+      // Le geste suivant (nouveau pointerdown) est rendu normalement.
+      const swallow = (ev: Event): void => ev.stopPropagation()
+      const kinds = ['pointermove', 'pointerup', 'touchstart', 'touchmove', 'touchend', 'mousedown', 'mousemove', 'mouseup', 'click']
+      const stop = (): void => {
+        kinds.forEach((k) => document.removeEventListener(k, swallow, { capture: true }))
+        window.removeEventListener('pointerdown', stop, { capture: true })
+      }
+      for (const k of kinds) document.addEventListener(k, swallow, { capture: true })
+      window.addEventListener('pointerdown', stop, { capture: true })
+      window.setTimeout(stop, 600)
+    }, { capture: true })
+  }
+
+  private get isDrawer(): boolean {
+    return matchMedia('(max-width: 700px)').matches
   }
 
   get visible(): boolean {
@@ -136,7 +160,10 @@ export class Sidebar {
       act('⧉', 'Dupliquer la page', () => void this.duplicate(page))
       act('✕', 'Supprimer la page', () => void this.remove(page))
       item.append(canvas, label, actions)
-      item.addEventListener('click', () => this.ed.viewport.showRect(this.ed.doc.box(page)))
+      item.addEventListener('click', () => {
+        this.ed.viewport.showRect(this.ed.doc.box(page))
+        if (this.isDrawer) this.toggle(false)
+      })
       item.addEventListener('dragstart', () => (dragged = i))
       item.addEventListener('dragover', (e) => {
         e.preventDefault()

@@ -93,12 +93,12 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
     return { lines: o._textLines.length, widths: o._textLines.map((_, i) => Math.round(o.getLineWidth(i))), offsets: o._textLines.map((_, i) => Math.round(o._getLineLeftOffset(i))), w: Math.round(o.width) }
   })
   check('free-form text zone', !!shaped && shaped.lines > 3 && Math.max(...shaped.offsets) > Math.min(...shaped.offsets) + 20, JSON.stringify(shaped))
-  // alignement centré + gras via le panneau
+  // alignement centré + gras via la barre de mise en forme
   await win.evaluate(() => { const { canvas, doc } = window.__feuillet.editor; canvas.setActiveObject(doc.content.at(-1)); canvas.fire('selection:created', {}) })
-  await win.click('.properties button[title="Centrer"]')
-  await win.click('.properties button[title^="Gras"]')
+  await win.click('.text-toolbar button[title^="Centrer"]')
+  await win.click('.text-toolbar button[title^="Gras"]')
   const styled = await win.evaluate(() => { const o = window.__feuillet.editor.doc.content.at(-1); return [o.textAlign, o.fontWeight] })
-  check('align center + bold from panel', styled[0] === 'center' && styled[1] === 'bold', JSON.stringify(styled))
+  check('align center + bold from text toolbar', styled[0] === 'center' && styled[1] === 'bold', JSON.stringify(styled))
   await win.screenshot({ path: path.join(outDir, 'tools-2-text.png') })
   const shapedPdf = await win.evaluate(async () => {
     const { exporter, editor, formats } = window.__feuillet

@@ -175,8 +175,8 @@ function textRuns(o: IText): Run[] {
       if (!/\s/.test(ch)) current!.width = x + box.kernedWidth - current!.x
       const thick = (size * (t.textDecorationThickness ?? 66.667)) / 1000
       const bg = s.textBackgroundColor as string | undefined
-      if (bg) current!.rects.push({ x, y: lineTop, w: box.kernedWidth, h: t.getHeightOfLine(i) / t.lineHeight, color: bg, behind: true })
-      const charBase = lineTop + (t.getHeightOfLine(i) / t.lineHeight) * (1 - t._fontSizeFraction) + Number(s.deltaY ?? 0)
+      if (bg) current!.rects.push({ x, y: lineTop, w: box.kernedWidth, h: impl, color: bg, behind: true })
+      const charBase = lineTop + impl * (1 - t._fontSizeFraction) + Number(s.deltaY ?? 0)
       if (s.underline) current!.rects.push({ x, y: charBase + t.offsets.underline * size, w: box.kernedWidth, h: thick, color: style.color, behind: false })
       if (s.linethrough) current!.rects.push({ x, y: charBase + t.offsets.linethrough * size - thick / 2, w: box.kernedWidth, h: thick, color: style.color, behind: false })
     }

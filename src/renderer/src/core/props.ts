@@ -1,4 +1,5 @@
 import { FabricObject } from 'fabric'
+import { installParagraphSpacing } from '../text/paragraph'
 
 /**
  * Propriétés métier portées par les objets du canevas et conservées dans
@@ -42,10 +43,14 @@ FabricObject.customProperties = [
   'contourStroke',
   'contourFill',
   'contourHeight',
+  'paragraphSpacing',
   'selectable',
   'evented',
   'hoverCursor'
 ]
+
+// Espacement entre paragraphes et éléments de liste (comme « Espacement après » de Word).
+installParagraphSpacing()
 
 export type Obj = FabricObject & FeuilletProps
 

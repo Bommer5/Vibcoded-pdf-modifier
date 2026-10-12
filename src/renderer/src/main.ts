@@ -27,6 +27,7 @@ import { installFonts } from './core/fonts'
 import { Layers } from './core/layers'
 import { FindBar } from './ui/find-bar'
 import { QuickBar } from './ui/quickbar'
+import { TextToolbar } from './ui/text-toolbar'
 import { Sidebar } from './ui/sidebar'
 import { TextSelection } from './ui/text-selection'
 import { editTextAt } from './pdf/edit-text'
@@ -125,6 +126,7 @@ const textSelection = new TextSelection(editor)
 tools.textSelection = textSelection
 const findBar = new FindBar(editor)
 new QuickBar(tools)
+new TextToolbar(editor)
 const tableEditor = new TableEditor(editor)
 const properties = new PropertiesPanel(editor, tools, tableEditor)
 

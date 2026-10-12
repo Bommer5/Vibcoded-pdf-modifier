@@ -40,23 +40,29 @@ qui a été corrigé (mesures à l'appui) et ce qui reste faible. Mesures :
 
 ## 3. Ce qui reste faible (à traiter)
 
-- **Polices dans l'export PDF** : les textes ajoutés passent en Helvetica, Times ou Courier.
-  Il faudrait intégrer des polices TrueType pour l'Unicode complet (emoji, alphabets non latins).
+Corrigé depuis la version précédente de cet audit : polices réelles intégrées au PDF
+(sous-ensembles TrueType, plus de Helvetica), PDF modifiable ≈ 1,3× l'original au lieu
+de 2×, impression testée automatiquement, interface téléphone, PDF protégés par mot de
+passe, barre de mise en forme du texte façon Word (listes, niveaux, espacement des
+paragraphes).
+
 - **Modification du texte d'origine** : la police exacte n'est pas réutilisée quand elle
   n'est pas installée (on prend la plus proche). Les mises en page complexes (colonnes
   imbriquées, texte tourné) ne sont pas regroupées parfaitement en paragraphes.
-- **PDF modifiable** : il contient le PDF d'origine en pièce jointe, donc il pèse environ
-  2 fois le PDF de départ. C'est le prix de la réouverture sans perte.
+- **Mise en forme du texte** : l'interligne, l'alignement et l'espacement des paragraphes
+  s'appliquent à toute la zone de texte (Word les règle paragraphe par paragraphe). Pas de
+  tabulations ni de retraits de première ligne. Les listes sont du texte (puce + espace
+  insécable) : elles s'exportent partout, mais le .docx reçoit des puces tapées, pas des
+  listes Word natives.
 - **Mémoire de base d'Electron** : environ 150 Mo par processus (incompressible avec
   Electron). Tauri serait plus léger, mais moins homogène entre Windows, Linux et Android.
-- **Impression** : non couverte par les tests automatiques (la boîte d'impression du système ne se pilote pas) ; elle passe par des images à 150 ppp.
-- **Mobile** : la barre du haut défile ; il manque une interface pensée pour téléphone.
 - **Historique** : les changements de calques (masquer, renommer) ne sont pas annulables.
-- **Mots de passe** : un PDF protégé ne s'ouvre pas encore (message clair, pas de demande du mot de passe).
 
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **63 vérifications** : formats, outils, fonctions essentielles, fichiers.
+  **124 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  PDF, impression, finitions, mise en forme du texte façon Word.
+- `npm run test:mobile` : **15 vérifications** sur un téléphone simulé (Pixel 7, tactile).
 - `node tests/bench.mjs` : comparaison chiffrée entre le Rust et le JavaScript.
 - `xvfb-run -a node tests/e2e/perf.cjs . out` : ouverture, défilement, annulation, mémoire.

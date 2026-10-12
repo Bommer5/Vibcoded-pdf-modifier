@@ -40,38 +40,6 @@ export class PropertiesPanel {
     settings.onChange(() => {
       if (c.getActiveObjects().length === 0) this.render()
     })
-    // Ctrl+B / Ctrl+I / Ctrl+U pendant la saisie d'un texte, comme dans Word.
-    window.addEventListener(
-      'keydown',
-      (e) => {
-        const t = c.getActiveObject()
-        if (!(e.ctrlKey || e.metaKey) || !t || !isText(t) || !t.isEditing) return
-        const key = e.key.toLowerCase()
-        if (!['b', 'i', 'u'].includes(key)) return
-        e.preventDefault()
-        e.stopPropagation()
-        this.toggleTextStyle(t, key as 'b' | 'i' | 'u')
-      },
-      { capture: true }
-    )
-    this.render()
-  }
-
-  private toggleTextStyle(t: TextObj, key: 'b' | 'i' | 'u'): void {
-    const ranged = t.selectionStart !== t.selectionEnd
-    const current = ranged ? (t.getSelectionStyles(t.selectionStart, t.selectionEnd)[0] ?? {}) : {}
-    const read = (k: string): unknown => (current as Record<string, unknown>)[k] ?? (t as unknown as Record<string, unknown>)[k]
-    const props =
-      key === 'b'
-        ? { fontWeight: read('fontWeight') === 'bold' ? 'normal' : 'bold' }
-        : key === 'i'
-          ? { fontStyle: read('fontStyle') === 'italic' ? 'normal' : 'italic' }
-          : { underline: !read('underline') }
-    if (ranged) t.setSelectionStyles(props)
-    else t.set(props)
-    t.initDimensions()
-    this.ed.canvas.requestRenderAll()
-    this.ed.history.record()
     this.render()
   }
 
@@ -153,54 +121,11 @@ export class PropertiesPanel {
     }
   }
 
-  // --- Texte (façon Word) ----------------------------------------------------------------
+  // --- Texte ---------------------------------------------------------------------------
+  // La mise en forme (police, gras, listes, interligne…) est dans la barre au-dessus de la page,
+  // comme dans Word : le panneau ne garde que ce qui concerne l'objet lui-même.
 
   private textSection(texts: TextObj[]): void {
-    const t = texts[0]
-    const editing = t.isEditing && t.selectionStart !== t.selectionEnd
-    const styleAt = editing ? (t.getSelectionStyles(t.selectionStart, t.selectionEnd)[0] ?? {}) : {}
-    const get = <K extends string>(k: K): unknown => (styleAt as Record<string, unknown>)[k] ?? (t as unknown as Record<string, unknown>)[k]
-
-    /** Applique un style : à la portion sélectionnée en cours d'édition, sinon à tout le texte. */
-    const style = (props: Record<string, unknown>): void =>
-      this.apply(texts, (o) => {
-        const obj = o as TextObj
-        if (obj.isEditing && obj.selectionStart !== obj.selectionEnd) obj.setSelectionStyles(props)
-        else {
-          for (const k of Object.keys(props)) obj.removeStyle(k as never)
-          obj.set(props)
-        }
-        obj.initDimensions?.()
-      })
-
-    this.section('Texte')
-    this.select('Police', FONTS, String(get('fontFamily')), (f) => style({ fontFamily: f }))
-    this.select('Taille', SIZES.map(String), String(Math.round(Number(get('fontSize')))), (s) => style({ fontSize: Number(s) }), true)
-
-    const row = this.row()
-    this.iconToggle(row, 'G', 'Gras (Ctrl+B)', get('fontWeight') === 'bold', (on) => style({ fontWeight: on ? 'bold' : 'normal' }), 'bold')
-    this.iconToggle(row, 'I', 'Italique (Ctrl+I)', get('fontStyle') === 'italic', (on) => style({ fontStyle: on ? 'italic' : 'normal' }), 'italic')
-    this.iconToggle(row, 'S', 'Souligné (Ctrl+U)', !!get('underline'), (on) => style({ underline: on }), 'underline')
-    this.iconToggle(row, 'ab', 'Barré', !!get('linethrough'), (on) => style({ linethrough: on }), 'strike')
-
-    this.label('Alignement')
-    const align = this.row()
-    for (const [id, label, title] of [
-      ['left', '⇤', 'Aligner à gauche'],
-      ['center', '↔', 'Centrer'],
-      ['right', '⇥', 'Aligner à droite'],
-      ['justify-left', '☰', 'Justifier']
-    ] as const) {
-      this.iconToggle(align, label, title, t.textAlign === id, () => this.apply(texts, (o) => o.set({ textAlign: id })))
-    }
-    this.select('Interligne', ['1', '1.15', '1.25', '1.5', '2', '2.5', '3'], String(Math.round(t.lineHeight * 100) / 100), (s) =>
-      this.apply(texts, (o) => o.set({ lineHeight: Number(s) }))
-    )
-    this.label('Couleur du texte')
-    this.colors(String(get('fill')), (c) => style({ fill: c }))
-    this.label('Surlignage')
-    this.colors(String(get('textBackgroundColor') || 'transparent'), (c) => style({ textBackgroundColor: c === 'transparent' ? '' : c }), ['#ffe600', '#7cf06b', '#5ad1ff', '#ff8ad8', '#ffb347'], true)
-
     const shaped = (texts as unknown[]).filter((o): o is ShapedText => o instanceof ShapedText)
     if (shaped.length) {
       this.section('Forme de la zone')
@@ -210,6 +135,8 @@ export class PropertiesPanel {
       this.colors(shaped[0].contourFill || 'transparent', (c) => this.apply(shaped, (o) => o.set({ contourFill: c === 'transparent' ? '' : c })), ['#fff8c5', '#e2f0ff', '#e6f7e6', '#ffe4ec', '#f2f2f2'], true)
       this.hint('Le texte suit la forme dessinée. Sans contour, la forme n’apparaît qu’en pointillés pendant l’édition.')
     } else {
+      this.section('Texte')
+      this.hint('Mise en forme : barre au-dessus de la page (police, gras, listes, interligne…).')
       this.hint('Astuce : avec l’outil Texte, entourez une zone à main levée pour que le texte épouse sa forme.')
     }
   }
