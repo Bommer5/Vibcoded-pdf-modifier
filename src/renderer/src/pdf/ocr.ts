@@ -408,11 +408,14 @@ export async function matchFont(page: Page, chars: PdfChar[]): Promise<FontGuess
     }
   }
   // Gras ou italique seulement s'ils ressemblent nettement mieux que le romain de la même police.
+  // Une police moins courante doit ressembler nettement mieux pour l'emporter sur les plus
+  // répandues (Lato ou Roboto contre Arial : formes proches, Arial bien plus probable).
   const adjusted = (key: string, score: number): number => {
     const [family, bold, italic] = key.split('|')
-    if (bold === 'false' && italic === 'false') return score
+    const common = BUNDLED.includes(family) ? 1 : 0.96
+    if (bold === 'false' && italic === 'false') return score * common
     const regular = scores.get(`${family}|false|false`)?.score ?? 0
-    return score > regular * 1.25 ? score : score * 0.85
+    return (score > regular * 1.25 ? score : score * 0.85) * common
   }
   let best: [string, { score: number; scales: number[] }] | null = null
   for (const e of scores) if (e[1].scales.length === sample.length && (!best || adjusted(e[0], e[1].score) > adjusted(best[0], best[1].score))) best = e
