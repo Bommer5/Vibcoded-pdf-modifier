@@ -95,6 +95,8 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   await win.keyboard.type('Nouveau paragraphe écrit par moi.')
   await win.keyboard.press('Escape')
   await win.waitForTimeout(300)
+  const typed = await F(() => window.__feuillet.editor.doc.content.find((o) => o.pdfEdit)?.text)
+  check('typed text kept exactly (accents)', typed === 'Nouveau paragraphe écrit par moi.', JSON.stringify(typed))
   await win.screenshot({ path: path.join(outDir, 'ess-1-edit.png') })
   const out = await F(async () => {
     const { exporter, editor, formats } = window.__feuillet

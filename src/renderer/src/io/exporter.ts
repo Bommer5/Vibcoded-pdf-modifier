@@ -6,10 +6,14 @@ import type { Editor } from '../core/editor'
 import { pageRenderer } from '../core/page-renderer'
 import { paperSvg } from '../core/paper'
 import { pdfEngine } from '../pdf/engine'
+import { Table } from '../objects/table'
+import { drawTextObject, hasRealText, PdfFonts } from './pdf-text'
+import { ensureFonts } from '../core/fonts'
 import { platform, type FileFilter } from '../platform'
 import { canvasToBlob } from '../util/blob'
 import { saveProject } from './project'
 import { EMBEDDED_PROJECT } from './importer'
+import { ANNOT_TAG } from './hybrid'
 
 // Bibliothèques lourdes chargées seulement au moment d'exporter (démarrage plus rapide, moins de mémoire).
 const lib = {
@@ -85,7 +89,8 @@ export class Exporter {
       case 'pdf':
         return [await this.pdf(pages)]
       case 'pdf-editable':
-        return [await this.pdf(pages, { embedProject: true })]
+        // Toujours le document complet : sinon les pages non exportées seraient perdues à la réouverture.
+        return [await this.pdf(this.ed.doc.pages, { embedProject: true })]
       case 'feuillet':
         return [await saveProject(this.ed.canvas, { layers: this.ed.layers?.list })]
       case 'svg':
@@ -153,9 +158,12 @@ export class Exporter {
    * SVG autonome d'une page (images en data URL).
    * Fond : 'all' (tout), 'vector' (papier seulement, le reste est posé à part), 'none'.
    */
-  async svg(page: Page, background: 'all' | 'vector' | 'none'): Promise<string> {
+  async svg(page: Page, background: 'all' | 'vector' | 'none', objects?: FabricObject[], tableTextApart = false): Promise<string> {
     const sc = new StaticCanvas(undefined, { width: page.width, height: page.height, enableRetinaScaling: false, renderOnAddRemove: false })
-    sc.add(...(await this.sceneObjects(page)))
+    const clones = objects ? await Promise.all(objects.map((o) => o.clone())) : await this.sceneObjects(page)
+    // Dans les PDF, le texte des tableaux est écrit à part avec de vraies polices.
+    if (tableTextApart) for (const c of clones) if (c instanceof Table) c.svgWithoutText = true
+    sc.add(...clones)
     sc.setViewportTransform([1, 0, 0, 1, -page.left, -page.top])
     let markup = sc.toSVG({ width: `${page.width}pt`, height: `${page.height}pt` })
     await sc.dispose()
@@ -193,8 +201,14 @@ export class Exporter {
    * en vectoriel (svg2pdf). Repli en image haute définition si besoin.
    */
   async pdf(pages: Page[], opts: { embedProject?: boolean } = {}): Promise<Uint8Array> {
+    // Mise en page calculée avec les polices définitives (celles intégrées au PDF).
+    await ensureFonts(this.ed.doc.content as never)
     const { PDFDocument } = await lib.pdf()
+    const pdfLib = await lib.pdf()
+    const outerIndex = new Map<string, number>()
     const out = await PDFDocument.create()
+    out.registerFontkit((await import('@pdf-lib/fontkit')).default)
+    const fonts = new PdfFonts(out)
     out.setProducer('Feuillet')
     out.setCreator('Feuillet')
 
@@ -220,7 +234,13 @@ export class Exporter {
         const src = await this.loadPdfLib(bytes ? `${source.id}#redacted` : source.id, bytes ?? source.bytes)
         const [copied] = await out.copyPages(src, [bg.index])
         out.addPage(copied)
-        if (hasContent) await this.overlay(out, copied, page, placementOf(copied), 'none')
+        outerIndex.set(page.pageId, out.getPageCount() - 1)
+        if (hasContent) {
+          // Ajouts dans un flux séparé et marqué : retirable à la réouverture (PDF modifiable).
+          copied.pushOperators(pdfLib.beginMarkedContent(ANNOT_TAG))
+          await this.overlay(out, copied, page, placementOf(copied), 'none', fonts)
+          copied.pushOperators(pdfLib.endMarkedContent())
+        }
         continue
       }
       const target = out.addPage([page.width, page.height])
@@ -230,13 +250,19 @@ export class Exporter {
         if (image) target.drawImage(image, { x: 0, y: 0, width: page.width, height: page.height })
       }
       if (hasContent || bg.kind === 'paper') {
-        await this.overlay(out, target, page, { rotation: 0, x: 0, y: 0, width: page.width, height: page.height }, 'vector')
+        await this.overlay(out, target, page, { rotation: 0, x: 0, y: 0, width: page.width, height: page.height }, 'vector', fonts)
       }
     }
     if (opts.embedProject) {
       // Le projet complet est joint au PDF : n'importe quel lecteur affiche le résultat,
       // Feuillet rouvre tout (calques, traits, textes) entièrement modifiable.
-      const project = await saveProject(this.ed.canvas, { layers: this.ed.layers?.list })
+      // Le PDF d'origine n'est pas joint : il est dans ce fichier même (voir hybrid.ts).
+      const sources = new Set(pages.flatMap((p) => (p.bg.kind === 'pdf' ? [p.bg.assetId] : [])))
+      const project = await saveProject(
+        this.ed.canvas,
+        { layers: this.ed.layers?.list, selfSource: Object.fromEntries(outerIndex) },
+        { exclude: sources }
+      )
       await out.attach(project, EMBEDDED_PROJECT, {
         mimeType: 'application/zip',
         description: 'Projet Feuillet : ouvrez ce PDF dans Feuillet pour tout modifier'
@@ -268,24 +294,86 @@ export class Exporter {
     return out.embedPng(new Uint8Array(await (await canvasToBlob(canvas, 'image/png')).arrayBuffer()))
   }
 
-  private async overlay(out: PDFDocument, target: PDFPage, page: Page, at: PdfPlacement, background: 'vector' | 'none'): Promise<void> {
+  /**
+   * Ajouts d'une page dessinés dans le PDF, dans l'ordre d'empilement :
+   * - formes, traits, images : en vectoriel (svg2pdf), par paquets consécutifs ;
+   * - textes et tableaux : avec de vraies polices intégrées (texte sélectionnable, Unicode).
+   */
+  private async overlay(out: PDFDocument, target: PDFPage, page: Page, at: PdfPlacement, background: 'vector' | 'none', fonts: PdfFonts): Promise<void> {
+    const pdfLib = await lib.pdf()
+    const objects = this.ed.doc.contentOn(page)
+    const display = displayMatrix(at)
+    // Paquets : [formes…], texte, [formes…], texte…  (le fond papier va avec le premier paquet)
+    const chunks: { text?: FabricObject; shapes?: FabricObject[] }[] = []
+    for (const o of objects) {
+      if (hasRealText(o) && !(o as { markup?: unknown }).markup) {
+        // Le cadre d'un tableau reste vectoriel ; seul son texte est écrit avec les polices.
+        if (o instanceof Table) chunks.push({ shapes: [o] })
+        chunks.push({ text: o })
+      } else if (chunks.at(-1)?.shapes) chunks.at(-1)!.shapes!.push(o)
+      else chunks.push({ shapes: [o] })
+    }
+    if (!chunks.length || !chunks[0].shapes) chunks.unshift({ shapes: [] })
+    let first = true
+    for (const chunk of chunks) {
+      if (chunk.shapes) {
+        const bg = first ? background : 'none'
+        first = false
+        if (!chunk.shapes.length && bg === 'none') continue
+        await this.drawShapes(out, target, page, at, bg, chunk.shapes, pdfLib)
+      } else if (chunk.text) {
+        const ok = await drawTextObject(pdfLib, fonts, target, chunk.text, page, display).catch((e) => {
+          console.warn('Texte vectoriel impossible', e)
+          return false
+        })
+        // Caractère absent de la police (emoji, idéogramme…) : image haute définition de l'objet.
+        if (!ok) await this.drawShapes(out, target, page, at, 'none', [chunk.text], pdfLib, true)
+      }
+    }
+  }
+
+  private async drawShapes(
+    out: PDFDocument,
+    target: PDFPage,
+    page: Page,
+    at: PdfPlacement,
+    background: 'vector' | 'none',
+    objects: FabricObject[],
+    pdfLib: typeof import('pdf-lib'),
+    forceRaster = false
+  ): Promise<void> {
     let embedded: PDFEmbeddedPage | PDFImage
-    const { degrees, PDFImage } = await lib.pdf()
     try {
+      if (forceRaster) throw new Error('raster')
       const { jsPDF } = await lib.jspdf()
       const { svg2pdf } = await lib.svg2pdf()
-      const svgText = pdfFonts(await this.svg(page, background))
+      const svgText = pdfFonts(await this.svg(page, background, objects, true))
       const svgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement
       const pdf = new jsPDF({ unit: 'pt', format: [page.width, page.height], orientation: page.width > page.height ? 'l' : 'p', compress: true, putOnlyUsedFonts: true })
       await svg2pdf(svgEl, pdf, { x: 0, y: 0, width: page.width, height: page.height })
-      const [first] = await out.embedPdf(new Uint8Array(pdf.output('arraybuffer')))
-      embedded = first
+      const [embeddedPage] = await out.embedPdf(new Uint8Array(pdf.output('arraybuffer')))
+      embedded = embeddedPage
     } catch (e) {
-      console.warn('Export vectoriel impossible, repli en image 300 ppp', e)
-      const canvas = await this.raster(page, 300, false, true)
+      if (!forceRaster) console.warn('Export vectoriel impossible, repli en image 300 ppp', e)
+      const canvas = await this.rasterObjects(page, objects, 300)
       embedded = await out.embedPng(new Uint8Array(await (await canvasToBlob(canvas, 'image/png')).arrayBuffer()))
     }
-    draw(target, embedded, at, degrees, PDFImage)
+    draw(target, embedded, at, pdfLib.degrees, pdfLib.PDFImage)
+  }
+
+  /** Image transparente d'une page ne contenant que certains objets. */
+  private async rasterObjects(page: Page, objects: FabricObject[], dpi: number): Promise<HTMLCanvasElement> {
+    const s = dpi / 72
+    const sc = new StaticCanvas(undefined, { width: Math.round(page.width * s), height: Math.round(page.height * s), enableRetinaScaling: false, renderOnAddRemove: false })
+    sc.add(...(await Promise.all(objects.map((o) => o.clone()))))
+    sc.setViewportTransform([s, 0, 0, s, -page.left * s, -page.top * s])
+    sc.renderAll()
+    const out = document.createElement('canvas')
+    out.width = sc.width
+    out.height = sc.height
+    out.getContext('2d')!.drawImage(sc.getElement(), 0, 0)
+    await sc.dispose()
+    return out
   }
 
   // --- Word -------------------------------------------------------------------
@@ -342,6 +430,18 @@ function pdfFonts(svg: string): string {
         : 'helvetica'
     return `font-family="${std}"`
   })
+}
+
+/** Repère de la page affichée (points, y vers le bas) → repère de la page PDF (rotation comprise). */
+function displayMatrix(at: PdfPlacement): number[] {
+  const { rotation: r, x, y, width: W, height: H } = at
+  const Hd = r % 180 === 0 ? H : W
+  const origin = r === 90 ? [x + W, y] : r === 180 ? [x + W, y + H] : r === 270 ? [x, y + H] : [x, y]
+  const rad = (r * Math.PI) / 180
+  const cos = Math.round(Math.cos(rad))
+  const sin = Math.round(Math.sin(rad))
+  // (u, v) → (u, Hd − v) puis rotation r autour de l'origine.
+  return [cos, sin, sin, -cos, origin[0] - sin * Hd, origin[1] + cos * Hd]
 }
 
 function placementOf(page: PDFPage): PdfPlacement {

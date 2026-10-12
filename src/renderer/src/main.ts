@@ -1,4 +1,5 @@
-import { Canvas, Point, util, type FabricObject } from 'fabric'
+import { Canvas, Point, Rect, Textbox, util, type FabricObject } from 'fabric'
+import { Table } from './objects/table'
 import './styles/app.css'
 import './core/props'
 import { DocumentModel } from './core/document'
@@ -20,6 +21,7 @@ import { MenuBar, type Menu } from './ui/menubar'
 import { FileSession } from './core/file-session'
 import { PropertiesPanel } from './ui/properties'
 import { initOverlay } from './core/overlay'
+import { installFonts } from './core/fonts'
 import { Layers } from './core/layers'
 import { FindBar } from './ui/find-bar'
 import { QuickBar } from './ui/quickbar'
@@ -82,6 +84,7 @@ const doc = new DocumentModel(canvas)
 const REAL_SIZE = 96 / 72
 const viewport = new Viewport(canvas, workspace, (z) => (zoomLabel.textContent = `${Math.round((z / REAL_SIZE) * 100)} %`))
 initOverlay(canvas)
+installFonts(canvas)
 await doc.addPage()
 // Créé plus bas (il a besoin de l'importeur) ; prévenu de chaque modification pour l'état « non enregistré ».
 let fileSession: FileSession | undefined
@@ -478,4 +481,10 @@ if (pending.length > 0) await session.open(pending)
 else await session.offerRecovery()
 
 // Accès pour les tests automatisés de bout en bout.
-Object.assign(window, { __feuillet: { editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, fileSession: session, layers, sidebar, findBar, textSelection, goToPage } })
+// Fabriques d'objets pour les tests automatisés (mêmes classes que l'interface).
+const make = {
+  textbox: (text: string, o: object) => new Textbox(text, o),
+  rect: (o: object) => new Rect(o),
+  table: (rows: number, cols: number) => Table.create(rows, cols)
+}
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, fileSession: session, layers, sidebar, findBar, textSelection, goToPage } })

@@ -220,6 +220,38 @@ export class Table extends FabricObject {
     ctx.restore()
   }
 
+  /** Texte à écrire avec de vraies polices dans les PDF (repère local, origine au centre). */
+  exportRuns(): { text: string; x: number; y: number; size: number; family: string; bold: boolean; color: string }[] {
+    const runs: { text: string; x: number; y: number; size: number; family: string; bold: boolean; color: string }[] = []
+    const lineH = this.fontSize * 1.25
+    let y = -this.height / 2
+    this.rowHeights.forEach((h, r) => {
+      let x = -this.width / 2
+      const bold = this.header && r === 0
+      measureCtx.font = `${bold ? 'bold ' : ''}${this.fontSize}px ${this.fontFamily}`
+      this.colWidths.forEach((w, c) => {
+        this.lines[r][c].forEach((line, i) => {
+          if (!line) return
+          runs.push({
+            text: line,
+            x: this.textX(c, x, measureCtx.measureText(line).width),
+            y: y + this.padding + this.fontSize * 0.95 + i * lineH,
+            size: this.fontSize,
+            family: this.fontFamily,
+            bold,
+            color: this.textColor
+          })
+        })
+        x += w
+      })
+      y += h
+    })
+    return runs
+  }
+
+  /** Export SVG sans le texte (écrit à part avec de vraies polices dans les PDF). */
+  svgWithoutText = false
+
   _toSVG(): string[] {
     const out: string[] = [`<g transform="translate(${-this.width / 2} ${-this.height / 2})">\n`]
     const lineH = this.fontSize * 1.25
@@ -232,7 +264,7 @@ export class Table extends FabricObject {
       this.colWidths.forEach((w, c) => {
         const bold = this.header && r === 0
         measureCtx.font = `${bold ? 'bold ' : ''}${this.fontSize}px ${this.fontFamily}`
-        this.lines[r][c].forEach((line, i) => {
+        if (!this.svgWithoutText) this.lines[r][c].forEach((line, i) => {
           const tx = this.textX(c, x, measureCtx.measureText(line).width)
           out.push(
             `<text x="${tx}" y="${y + this.padding + this.fontSize * 0.95 + i * lineH}" font-family="${this.fontFamily}" font-size="${this.fontSize}" font-weight="${bold ? 'bold' : 'normal'}" fill="${this.textColor}" xml:space="preserve">${escapeXml(line)}</text>\n`

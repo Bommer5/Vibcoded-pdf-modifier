@@ -29,7 +29,11 @@ function walk(objects: JsonObject[] | undefined, fn: (o: JsonObject) => void): v
   }
 }
 
-export async function saveProject(canvas: Canvas, extra: Record<string, unknown> = {}): Promise<Uint8Array> {
+export async function saveProject(
+  canvas: Canvas,
+  extra: Record<string, unknown> = {},
+  opts: { exclude?: Set<string> } = {}
+): Promise<Uint8Array> {
   const { default: JSZip } = await import('jszip')
   const scene = canvas.toObject() as JsonObject
   const used = new Set<string>()
@@ -41,6 +45,7 @@ export async function saveProject(canvas: Canvas, extra: Record<string, unknown>
   const zip = new JSZip()
   const manifest: Manifest = { app: 'Feuillet', format: FORMAT_VERSION, assets: [] }
   for (const id of used) {
+    if (opts.exclude?.has(id)) continue
     const asset = assets.get(id)
     if (!asset) continue
     manifest.assets.push({ id, mime: asset.mime })
@@ -51,7 +56,11 @@ export async function saveProject(canvas: Canvas, extra: Record<string, unknown>
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
 }
 
-export async function loadProject(canvas: Canvas, data: Uint8Array): Promise<Record<string, unknown>> {
+export async function loadProject(
+  canvas: Canvas,
+  data: Uint8Array,
+  remap?: (scene: Record<string, unknown> & { objects?: Record<string, unknown>[] }) => void
+): Promise<Record<string, unknown>> {
   const { default: JSZip } = await import('jszip')
   const zip = await JSZip.loadAsync(data)
   const manifest = JSON.parse((await zip.file('manifest.json')?.async('string')) ?? 'null') as Manifest | null
@@ -63,6 +72,7 @@ export async function loadProject(canvas: Canvas, data: Uint8Array): Promise<Rec
   }
   const scene = JSON.parse((await zip.file('document.json')!.async('string')) ?? '{}') as JsonObject
   if (manifest.format < 2) migrateV1(scene)
+  remap?.(scene)
   walk(scene.objects, (o) => {
     if (o.assetId) o.src = assets.get(o.assetId)?.url ?? ''
   })

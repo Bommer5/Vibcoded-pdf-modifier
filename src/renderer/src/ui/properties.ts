@@ -9,10 +9,8 @@ import { buildInk, scenePoints, type InkObject } from '../tools/ink'
 import type { Tool, ToolManager } from '../tools/manager'
 import { dashArray, settings, SWATCHES, type LineStyle, type ShapeKind, type ToolSettings } from '../tools/settings'
 
-export const FONTS = [
-  'Helvetica', 'Arial', 'Times New Roman', 'Georgia', 'Garamond', 'Courier New',
-  'Verdana', 'Trebuchet MS', 'Calibri', 'Cambria', 'Comic Sans MS'
-]
+/** Polices proposées : toutes ont un équivalent intégré, donc un rendu identique à l'écran et dans le PDF. */
+export const FONTS = ['Arial', 'Helvetica', 'Times New Roman', 'Georgia', 'Calibri', 'Cambria', 'Courier New', 'Verdana', 'Trebuchet MS', 'Garamond', 'Comic Sans MS']
 const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60, 72]
 
 type TextObj = IText & { underline: boolean; linethrough: boolean }

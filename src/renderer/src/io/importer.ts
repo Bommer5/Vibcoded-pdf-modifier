@@ -8,6 +8,7 @@ import { platform, type FileFilter, type OpenedFile } from '../platform'
 import { decodeImage, DECODED_IMAGE_EXT, NATIVE_IMAGE_EXT } from './images'
 import { pdfEngine } from '../pdf/engine'
 import { loadProject } from './project'
+import { stripAnnotations } from './hybrid'
 import { decodeText, importTextAsPages, textBox, TEXT_EXT } from './text'
 import { importXournal } from './xournal'
 
@@ -85,7 +86,29 @@ export class Importer {
     return true
   }
 
-  /** « PDF modifiable » : le projet Feuillet complet est joint au PDF. */
+  /**
+   * Rouvre un « PDF modifiable » : le PDF d'origine est reconstitué en retirant les ajouts
+   * de Feuillet (flux marqué), puis le projet joint redonne tous les objets modifiables.
+   */
+  private async openEditablePdf(data: Uint8Array, project: Uint8Array): Promise<void> {
+    const original = await stripAnnotations(data)
+    const source = assets.add(original, 'application/pdf')
+    await pdfEngine.open(source.id, original)
+    const scene = await loadProject(this.ed.canvas, project, (s) => {
+      const map = (s.selfSource ?? null) as Record<string, number> | null
+      if (!map) return // ancien format : le PDF d'origine était joint au projet
+      for (const o of s.objects ?? []) {
+        const bg = o.bg as { kind?: string; assetId?: string; index?: number } | undefined
+        if (o.type === 'Page' && bg?.kind === 'pdf' && typeof map[o.pageId as string] === 'number') {
+          o.bg = { kind: 'pdf', assetId: source.id, index: map[o.pageId as string] }
+          o.masks = [] // le texte modifié est déjà retiré du PDF d'origine reconstitué
+        }
+      }
+    })
+    this.ed.layers?.load(scene.layers as never)
+  }
+
+  /** « PDF modifiable » : le projet Feuillet est joint au PDF. */
   private async embeddedProject(data: Uint8Array): Promise<Uint8Array | null> {
     const probe = `probe:${crypto.randomUUID()}`
     try {
@@ -109,8 +132,7 @@ export class Importer {
       // PDF enregistré par Feuillet : on rouvre le projet complet qu'il contient (tout reste modifiable).
       const embedded = files.length === 1 && kindOf(file.name) === 'pdf' ? await this.embeddedProject(file.data) : null
       if (embedded) {
-        const scene = await loadProject(this.ed.canvas, embedded)
-        this.ed.layers?.load(scene.layers as never)
+        await this.openEditablePdf(file.data, embedded)
         continue
       }
       if (kindOf(file.name) === 'project') {
