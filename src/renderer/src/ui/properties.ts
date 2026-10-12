@@ -8,6 +8,10 @@ import type { TableEditor } from '../objects/table-editor'
 import { buildInk, scenePoints, type InkObject } from '../tools/ink'
 import type { Tool, ToolManager } from '../tools/manager'
 import { dashArray, settings, SWATCHES, type LineStyle, type ShapeKind, type ToolSettings } from '../tools/settings'
+import { PAGE_SIZES } from '../core/document'
+import type { Page } from '../core/page'
+import { PAPER_STYLES, type PaperStyle } from '../core/paper'
+import { icon } from './icons'
 
 /** Polices proposées : toutes ont un équivalent intégré, donc un rendu identique à l'écran et dans le PDF. */
 export const FONTS = ['Arial', 'Helvetica', 'Times New Roman', 'Georgia', 'Calibri', 'Cambria', 'Courier New', 'Verdana', 'Trebuchet MS', 'Garamond', 'Comic Sans MS']
@@ -76,19 +80,19 @@ export class PropertiesPanel {
         this.slider('Épaisseur', 0.5, 20, v.penWidth, set('penWidth'), ' pt', 0.5)
         this.lineStyle(v.penStyle, set('penStyle'))
         this.toggle('Sensible à la pression', v.pressure, set('pressure'))
-        this.hint('Maintenez Maj, ou gardez le stylet immobile en fin de trait, pour une ligne droite.')
+        this.tips('pen', ['Maintenez Maj, ou gardez le stylet immobile en fin de trait, pour une ligne droite.', 'Un simple toucher sur une image ou un texte le sélectionne ; appuyez dedans pour le déplacer.'])
         break
       case 'highlighter':
         this.section('Surligneur')
         this.colors(v.highlighterColor, set('highlighterColor'), ['#ffe600', '#7cf06b', '#5ad1ff', '#ff8ad8', '#ffb347', '#c39bff'])
         this.slider('Épaisseur', 4, 40, v.highlighterWidth, set('highlighterWidth'), ' pt')
-        this.hint('Maj = trait bien droit, idéal pour surligner une ligne de texte.')
+        this.tips('highlighter', ['Sur le texte d’un PDF, le surlignage s’aligne tout seul sur les lignes. Maj = trait libre bien droit.'])
         break
       case 'eraser':
         this.section('Gomme')
         this.choice<'partial' | 'stroke'>('Mode', v.eraserMode, [['partial', 'Partielle'], ['stroke', 'Trait entier']], set('eraserMode'))
         this.slider('Taille', 6, 80, v.eraserSize, set('eraserSize'), ' px')
-        this.hint('Le bout gomme du stylet est reconnu automatiquement. Images et textes ne sont jamais effacés par la gomme.')
+        this.tips('eraser', ['Le bout gomme du stylet est reconnu automatiquement. Images et textes ne sont jamais effacés par la gomme.'])
         break
       case 'shape':
         this.section('Formes')
@@ -99,27 +103,123 @@ export class PropertiesPanel {
         this.colors(v.shapeFill, set('shapeFill'), SWATCHES, true)
         this.slider('Épaisseur', 0.5, 20, v.shapeWidth, set('shapeWidth'), ' pt', 0.5)
         this.lineStyle(v.shapeStyle, set('shapeStyle'))
-        this.hint('Maj : carré, cercle, ou ligne aimantée tous les 15°.')
+        this.tips('shape', ['Maj : carré, cercle, ou ligne aimantée tous les 15°.'])
         break
       case 'text':
         this.section('Texte')
         this.select('Police', FONTS, v.fontFamily, set('fontFamily'))
         this.select('Taille', SIZES.map(String), String(v.fontSize), (s) => settings.set('fontSize', Number(s)))
         this.colors(v.textColor, set('textColor'))
-        this.hint('Cliquez sur la page pour écrire.')
+        this.tips('text', ['Cliquez sur la page pour écrire, ou glissez pour tracer une zone de texte.', 'Entourez une zone à main levée : le texte épousera sa forme.'])
         break
       case 'table':
         this.section('Tableau')
         this.slider('Lignes', 1, 30, v.tableRows, set('tableRows'), '')
         this.slider('Colonnes', 1, 12, v.tableCols, set('tableCols'), '')
-        this.hint('Cliquez sur la page pour placer le tableau. Double-clic sur une cellule pour écrire, Tab pour passer à la suivante.')
+        this.tips('table', ['Cliquez sur la page pour placer le tableau. Double-clic sur une cellule pour écrire, Tab pour passer à la suivante.'])
         break
       default:
-        this.section('Astuces')
-        this.hint('Cliquez-glissez pour sélectionner. Glissez la sélection pour la déplacer.')
-        this.hint('Ctrl+C puis Ctrl+V colle sous le pointeur. Espace maintenu = déplacer la vue.')
-        this.hint('Objets superposés : Alt+clic prend celui du dessous ; clic droit les liste tous.')
+        this.pageSection()
+        this.tips('select', [
+          'Cliquez sur un objet pour le sélectionner, glissez-le pour le déplacer.',
+          'Objets superposés : Alt+clic prend celui du dessous ; clic droit les liste tous.',
+          'Ctrl+C puis Ctrl+V colle sous le pointeur. Deux doigts sur le pavé tactile = se déplacer.'
+        ])
     }
+  }
+
+  // --- Page (rien de sélectionné) ------------------------------------------------------
+
+  /** Ajout d'une page après une autre (fourni par l'application). */
+  onAddPage: ((after: Page) => void) | null = null
+  private shownPage: Page | null = null
+
+  /** À appeler quand la page à l'écran change : le panneau Page suit. */
+  pageChanged(): void {
+    const page = this.ed.doc.currentPage() ?? null
+    if (page === this.shownPage || this.ed.canvas.getActiveObjects().length) return
+    if (!['select', 'lasso', 'hand', 'textselect', 'edittext'].includes(this.tools.tool)) return
+    this.render()
+  }
+
+  private pageSection(): void {
+    const { doc, history } = this.ed
+    const page = doc.currentPage() ?? doc.pages[0]
+    this.shownPage = page ?? null
+    if (!page) return
+    const pages = doc.pages
+    this.section(`Page ${pages.indexOf(page) + 1} sur ${pages.length}`)
+    const mm = (pt: number): number => Math.round(pt * 0.3528)
+    const fixed = page.bg.kind === 'pdf' || page.bg.kind === 'image'
+    const landscape = page.width > page.height
+    if (fixed) {
+      this.hint(`Format de la page importée : ${mm(page.width)} × ${mm(page.height)} mm (${landscape ? 'paysage' : 'portrait'}).`)
+    } else {
+      const short = Math.min(page.width, page.height)
+      const long = Math.max(page.width, page.height)
+      const names: [string, string][] = [['A4', 'A4 (210 × 297 mm)'], ['A5', 'A5 (148 × 210 mm)'], ['A3', 'A3 (297 × 420 mm)'], ['Letter', 'Lettre US']]
+      const current = names.find(([k]) => {
+        const sz = PAGE_SIZES[k as keyof typeof PAGE_SIZES]
+        return Math.abs(sz.width - short) < 1 && Math.abs(sz.height - long) < 1
+      })
+      const custom = `Personnalisé (${mm(page.width)} × ${mm(page.height)} mm)`
+      const resize = (w: number, h: number): void => {
+        void history.transaction(() => doc.resizePage(page, { width: w, height: h })).then(() => {
+          this.ed.canvas.requestRenderAll()
+          this.render()
+        })
+      }
+      this.select('Format', names.map(([, l]) => l), current ? current[1] : custom, (label) => {
+        const key = names.find(([, l]) => l === label)?.[0] as keyof typeof PAGE_SIZES | undefined
+        if (!key) return
+        const sz = PAGE_SIZES[key]
+        resize(landscape ? sz.height : sz.width, landscape ? sz.width : sz.height)
+      })
+      this.choice<'portrait' | 'landscape'>('Orientation', landscape ? 'landscape' : 'portrait', [['portrait', 'Portrait'], ['landscape', 'Paysage']], (o) => {
+        if ((o === 'landscape') !== landscape) resize(page.height, page.width)
+      })
+      const style = page.bg.kind === 'paper' ? page.bg.style : 'plain'
+      this.select('Fond', PAPER_STYLES.map((p) => p.label), PAPER_STYLES.find((p) => p.id === style)?.label ?? 'Uni', (label) => {
+        const id = PAPER_STYLES.find((p) => p.label === label)?.id as PaperStyle | undefined
+        if (!id) return
+        void history.transaction(() => {
+          page.set({ bg: id === 'plain' ? { kind: 'blank' } : { kind: 'paper', style: id, color: '#ffffff' } } as never)
+          page.dirty = true
+          history.touch(page)
+        }).then(() => this.ed.canvas.requestRenderAll())
+      })
+    }
+    if (this.onAddPage) this.button('+ Ajouter une page après', () => this.onAddPage?.(page), 'wide')
+  }
+
+  /**
+   * Astuces : affichées tant qu'on ne les a pas fermées (« Compris »), puis plus jamais.
+   * Les gestes restent rappelés dans la barre d'état.
+   */
+  private tips(key: string, lines: string[]): void {
+    const id = `feuillet.tips.${key}`
+    try {
+      if (localStorage.getItem(id)) return
+    } catch {
+      // stockage indisponible : on affiche les astuces
+    }
+    const card = this.el('div', 'tips')
+    const head = this.el('div', 'tips-head')
+    head.innerHTML = `${icon('tip', 16)}<span>Astuce</span>`
+    card.append(head)
+    for (const line of lines) card.append(this.el('p', 'prop-hint', line))
+    const ok = this.el('button', 'tips-ok', 'Compris')
+    ok.type = 'button'
+    ok.addEventListener('click', () => {
+      try {
+        localStorage.setItem(id, '1')
+      } catch {
+        // tant pis : elle disparaît jusqu'au prochain affichage
+      }
+      card.remove()
+    })
+    card.append(ok)
+    this.root.append(card)
   }
 
   // --- Texte ---------------------------------------------------------------------------
@@ -134,11 +234,9 @@ export class PropertiesPanel {
       this.colors(shaped[0].contourStroke || 'transparent', (c) => this.apply(shaped, (o) => o.set({ contourStroke: c === 'transparent' ? '' : c })), SWATCHES, true)
       this.label('Fond')
       this.colors(shaped[0].contourFill || 'transparent', (c) => this.apply(shaped, (o) => o.set({ contourFill: c === 'transparent' ? '' : c })), ['#fff8c5', '#e2f0ff', '#e6f7e6', '#ffe4ec', '#f2f2f2'], true)
-      this.hint('Le texte suit la forme dessinée. Sans contour, la forme n’apparaît qu’en pointillés pendant l’édition.')
+      this.tips('shaped', ['Le texte suit la forme dessinée. Sans contour, la forme n’apparaît qu’en pointillés pendant l’édition.'])
     } else {
-      this.section('Texte')
-      this.hint('Mise en forme : barre au-dessus de la page (police, gras, listes, interligne…).')
-      this.hint('Astuce : avec l’outil Texte, entourez une zone à main levée pour que le texte épouse sa forme.')
+      this.tips('text-format', ['Mise en forme (police, gras, listes, interligne…) : barre au-dessus de la page, comme dans Word.'])
     }
   }
 
@@ -171,7 +269,7 @@ export class PropertiesPanel {
     this.colors(table.headerFill, (c) => edit(() => (table.headerFill = c)), ['#dbe5f1', '#fce4d6', '#e2efda', '#fff2cc', '#ededed', '#4472c4'])
     this.label('Bordures')
     this.colors(table.borderColor, (c) => edit(() => (table.borderColor = c)))
-    this.hint('Double-clic sur une cellule pour écrire. Redimensionnez le tableau avec les poignées : le texte garde sa taille.')
+    this.tips('table-edit', ['Double-clic sur une cellule pour écrire. Redimensionnez le tableau avec les poignées : le texte garde sa taille.'])
   }
 
   // --- Traits et formes ------------------------------------------------------------------

@@ -118,17 +118,66 @@ export class Viewport {
     return new Point(e.clientX - r.left, e.clientY - r.top)
   }
 
+  /**
+   * Pavé tactile et molette :
+   * - glisser à deux doigts : déplace la vue dans tous les sens (comme dans un navigateur) ;
+   * - pincer (ou Ctrl+molette) : zoom sur le pointeur ;
+   * - Maj+molette : défilement horizontal (souris sans molette horizontale).
+   * Les évènements sont regroupés par image (60 Hz) : défilement fluide même quand le
+   * pavé en envoie des centaines par seconde, et la vue ne peut pas « perdre » le document.
+   */
+  private wheel = { dx: 0, dy: 0, zoom: 1, at: null as Point | null, frame: 0 }
+
   private onWheel(e: WheelEvent): void {
     e.preventDefault()
+    // Unités : pixels (pavé tactile), lignes (certaines souris sous Linux / Firefox), pages.
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.canvas.getHeight() : 1
+    const dx = e.deltaX * unit
+    const dy = e.deltaY * unit
+    const w = this.wheel
     if (e.ctrlKey || e.metaKey) {
-      // Ctrl+molette (et pincement sur pavé tactile) : zoom sur le pointeur.
-      this.zoomAt(this.zoom * Math.pow(1.0015, -e.deltaY), this.local(e))
+      // Pincement : petits pas réguliers ; molette crantée : pas de ~10 % par cran.
+      const step = Math.max(-100, Math.min(100, dy))
+      w.zoom *= Math.pow(1.0022, -step)
+      w.at = this.local(e)
+    } else if (e.shiftKey && !dx) {
+      w.dx -= dy
     } else {
-      // Molette seule : défilement ; Maj+molette : défilement horizontal.
-      const dx = e.shiftKey ? -e.deltaY : -e.deltaX
-      const dy = e.shiftKey ? 0 : -e.deltaY
-      this.canvas.relativePan(new Point(dx, dy))
+      w.dx -= dx
+      w.dy -= dy
     }
+    if (!w.frame) w.frame = requestAnimationFrame(() => this.flushWheel())
+  }
+
+  private flushWheel(): void {
+    const w = this.wheel
+    w.frame = 0
+    if (w.zoom !== 1) this.zoomAt(this.zoom * w.zoom, w.at)
+    if (w.dx || w.dy) this.panBy(w.dx, w.dy)
+    w.dx = w.dy = 0
+    w.zoom = 1
+  }
+
+  /** Document visible (coordonnées document), pour ne jamais le perdre de vue. */
+  bounds: (() => { left: number; top: number; width: number; height: number }) | null = null
+
+  /** Déplace la vue de (dx, dy) pixels écran, en gardant une partie du document à l'écran. */
+  panBy(dx: number, dy: number): void {
+    const v = [...this.canvas.viewportTransform] as typeof this.canvas.viewportTransform
+    let x = v[4] + dx
+    let y = v[5] + dy
+    const b = this.bounds?.()
+    if (b) {
+      const z = v[0]
+      const W = this.canvas.getWidth()
+      const H = this.canvas.getHeight()
+      const keep = 120 // pixels du document toujours visibles
+      x = Math.min(W - keep - b.left * z, Math.max(keep - (b.left + b.width) * z, x))
+      y = Math.min(H - keep - b.top * z, Math.max(keep - (b.top + b.height) * z, y))
+    }
+    v[4] = x
+    v[5] = y
+    this.canvas.setViewportTransform(v)
   }
 
   private onPointerDown(e: PointerEvent): void {
@@ -161,7 +210,8 @@ export class Viewport {
       if (this.pinch && this.touches.size === 2) {
         e.stopPropagation()
         const next = this.pinchState()
-        this.canvas.relativePan(next.center.subtract(this.pinch.center))
+        const d = next.center.subtract(this.pinch.center)
+        this.panBy(d.x, d.y)
         this.zoomAt(this.zoom * (next.distance / this.pinch.distance), next.center)
         this.pinch = next
         return
@@ -170,7 +220,8 @@ export class Viewport {
     if (!this.drag || e.pointerId !== this.drag.id) return
     e.stopPropagation()
     const now = new Point(e.clientX, e.clientY)
-    this.canvas.relativePan(now.subtract(this.drag.last))
+    const d = now.subtract(this.drag.last)
+    this.panBy(d.x, d.y)
     this.drag.last = now
   }
 

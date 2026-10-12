@@ -50,6 +50,9 @@ Figma, Inkscape) et réponse apportée :
 | Impossible de prendre l'objet du dessous | Alt+clic (cycle), clic droit = liste des objets superposés avec aperçu, verrouillage |
 | Icônes emoji, incohérentes selon le système | Jeu d'icônes Lucide homogène, info-bulles nom + raccourci réel, couleur du stylo sur son bouton |
 | Fonctions cachées | Barre d'état : gestes de l'outil actif ; menu clic droit complet |
+| Icônes seules incompréhensibles au début, outils mal rangés | Libellé sous chaque outil, outils courants en premier, lasso et main à la fin |
+| Défilement au pavé tactile peu fiable, document « perdu » | Défilement à deux doigts regroupé par image, pincement = zoom, vue toujours sur le document |
+| Astuces envahissantes | Affichées au début, fermées pour de bon par « Compris » ; panneau Page à la place |
 | PDF inséré au mauvais format (paysage / portrait) | Dialogue : image redimensionnable, pages au format du PDF ou du document, choix des pages |
 
 ## 3. Ce qui reste faible (à traiter)
@@ -75,7 +78,7 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **155 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  **172 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
   PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
   superposés, insertion de PDF.
 - `npm run test:mobile` : **15 vérifications** sur un téléphone simulé (Pixel 7, tactile).

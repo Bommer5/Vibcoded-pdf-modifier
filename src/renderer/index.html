@@ -37,21 +37,23 @@
       </header>
       <aside class="sidebar" id="sidebar" aria-label="Pages, sommaire et calques"></aside>
       <aside class="toolbar" id="toolbar" aria-label="Outils">
-        <button data-tool="select" title="Sélection (V)" aria-label="Sélection" data-icon="select"></button>
-        <button data-tool="lasso" title="Lasso : entourer pour sélectionner (L)" aria-label="Lasso" data-icon="lasso"></button>
-        <button data-tool="hand" title="Main (H, ou maintenir Espace)" aria-label="Main" data-icon="hand"></button>
+        <!-- Rangés par usage : les outils de tous les jours d'abord, puis insertion, PDF, navigation. -->
+        <button data-tool="select" title="Sélection (V) — clic : choisir un objet, glisser : le déplacer" aria-label="Sélection" data-icon="select" data-label="Sélection"></button>
+        <button data-tool="pen" title="Stylo (P) — Maj : ligne droite" aria-label="Stylo" data-icon="pen" data-label="Stylo"></button>
+        <button data-tool="highlighter" title="Surligneur (S)" aria-label="Surligneur" data-icon="highlighter" data-label="Surligneur"></button>
+        <button data-tool="eraser" title="Gomme (E)" aria-label="Gomme" data-icon="eraser" data-label="Gomme"></button>
         <span class="tool-sep"></span>
-        <button data-tool="textselect" title="Sélectionner le texte du PDF : copier, surligner, souligner, barrer (X)" aria-label="Sélection de texte" data-icon="textselect"></button>
-        <button data-tool="edittext" title="Modifier le texte du PDF (M) — ou double-clic sur un texte" aria-label="Modifier le texte" data-icon="edittext"></button>
+        <button data-tool="text" title="Texte (T) — cliquez sur la page pour écrire" aria-label="Texte" data-icon="text" data-label="Texte"></button>
+        <button data-tool="shape" title="Formes (R) — ligne, flèche, rectangle, ellipse…" aria-label="Formes" data-icon="shape" data-label="Formes"></button>
+        <button data-action="insert-image" title="Image — insérer une image ou une photo" aria-label="Image" data-icon="image" data-label="Image"></button>
+        <button data-tool="table" title="Tableau — cliquez sur la page pour le placer" aria-label="Tableau" data-icon="table" data-label="Tableau"></button>
+        <button data-action="chart" title="Graphique — barres, courbes, secteurs…" aria-label="Graphique" data-icon="chart" data-label="Graphique"></button>
         <span class="tool-sep"></span>
-        <button data-tool="pen" title="Stylo (P) — Maj : ligne droite" aria-label="Stylo" data-icon="pen"></button>
-        <button data-tool="highlighter" title="Surligneur (S)" aria-label="Surligneur" data-icon="highlighter"></button>
-        <button data-tool="eraser" title="Gomme (E)" aria-label="Gomme" data-icon="eraser"></button>
-        <button data-tool="shape" title="Formes : ligne, flèche, rectangle, ellipse… (R)" aria-label="Formes" data-icon="shape"></button>
+        <button data-tool="textselect" title="Texte du PDF (X) — sélectionner le texte d'un PDF pour le copier, le surligner, le souligner ou le barrer" aria-label="Sélection de texte" data-icon="textselect" data-label="Texte PDF"></button>
+        <button data-tool="edittext" title="Modifier le PDF (M) — cliquer sur un texte du PDF pour le réécrire (ou double-clic)" aria-label="Modifier le texte" data-icon="edittext" data-label="Modifier"></button>
         <span class="tool-sep"></span>
-        <button data-tool="text" title="Texte (T)" aria-label="Texte" data-icon="text"></button>
-        <button data-tool="table" title="Tableau" aria-label="Tableau" data-icon="table"></button>
-        <button data-action="chart" title="Insérer un graphique" aria-label="Graphique" data-icon="chart"></button>
+        <button data-tool="lasso" title="Lasso (L) — entourer à main levée pour sélectionner plusieurs objets" aria-label="Lasso" data-icon="lasso" data-label="Lasso"></button>
+        <button data-tool="hand" title="Main (H, ou maintenir Espace) — déplacer la vue" aria-label="Main" data-icon="hand" data-label="Main"></button>
       </aside>
       <main class="workspace" id="workspace">
         <canvas id="stage"></canvas>

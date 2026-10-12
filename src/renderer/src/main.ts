@@ -135,6 +135,7 @@ installTooltips((b) => {
 })
 
 viewport.fit(doc.bounds())
+viewport.bounds = () => doc.bounds()
 new ResizeObserver(() => canvas.setDimensions({ width: workspace.clientWidth, height: workspace.clientHeight })).observe(workspace)
 
 // --- Outils --------------------------------------------------------------------
@@ -233,6 +234,7 @@ const actions: Record<string, () => void | Promise<void>> = {
   },
   open: async () => session.open(await platform.openFiles(OPEN_FILTERS)),
   insert: async () => importer.insert(await platform.openFiles(OPEN_FILTERS), null),
+  'insert-image': async () => importer.insert(await platform.openFiles(OPEN_FILTERS.filter((f) => f.name === 'Images')), null),
   save: async () => void (await session.save()),
   'save-as': async () => void (await session.saveAs()),
   print: async () => {
@@ -332,6 +334,7 @@ async function addPageAfter(page: Page | undefined, style: PaperStyle = settings
 }
 
 const sidebar = new Sidebar(editor, exporter, layers, (p) => addPageAfter(p))
+properties.onAddPage = (p) => void addPageAfter(p)
 
 // --- Navigation entre les pages -----------------------------------------------------
 
@@ -345,6 +348,7 @@ canvas.on('after:render', () => {
     pageCount.textContent = String(pages.length)
     pageInput.max = String(pages.length)
     if (document.activeElement !== pageInput) pageInput.value = String(Math.max(1, pages.indexOf(doc.currentPage()!) + 1))
+    properties.pageChanged()
   }, 120)
 })
 function goToPage(n: number): void {

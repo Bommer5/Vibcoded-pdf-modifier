@@ -32,6 +32,12 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
   « Interligne et espacement » ▾ : interligne et **espace entre paragraphes / éléments de liste**).
   Comme dans Word, curseur dans un mot = tout le mot ; Entrée continue la liste, Entrée sur un
   élément vide la termine, Tab / Maj+Tab change de niveau, les numéros se recalculent seuls
+- **Barre d'outils claire** : chaque outil a son nom sous l'icône, rangés par usage (Sélection,
+  Stylo, Surligneur, Gomme, Texte, Formes, Image, Tableau, Graphique, puis outils PDF, Lasso, Main)
+- **Pavé tactile** : glisser à deux doigts déplace la vue dans tous les sens, pincer zoome sur le
+  pointeur ; la vue ne peut plus « perdre » le document
+- **Panneau Page** (rien de sélectionné) : format (A4, A5, A3, Lettre), portrait / paysage, fond
+  (uni, ligné, carreaux…), ajouter une page. Les astuces s'affichent au début et se ferment d'un clic
 - **Prendre et déplacer sans dessiner par erreur** : avec le stylo, un simple toucher sur une
   image, un texte ou une forme la sélectionne, et un appui dans la sélection la déplace (on ne
   trace que sur le vide). Après une insertion, l'outil Sélection revient tout seul. Bouton

@@ -131,8 +131,7 @@ export class DocumentModel {
    * Réordonne les pages (nouvel ordre = liste des pages) : chaque page garde son contenu,
    * puis tout est réempilé verticalement.
    */
-  reorder(order: Page[]): void {
-    const owned = new Map(order.map((p) => [p, this.ownedBy(p)]))
+  reorder(order: Page[], owned = new Map(order.map((p) => [p, this.ownedBy(p)]))): void {
     let top = 0
     for (const page of order) {
       const dy = top - page.top
@@ -146,6 +145,23 @@ export class DocumentModel {
       }
       top += page.height + PAGE_GAP
     }
+  }
+
+  /**
+   * Change le format d'une page (A4, paysage…) : la page reste centrée, son contenu garde
+   * sa place par rapport au coin haut-gauche, les pages suivantes se décalent.
+   */
+  resizePage(page: Page, size: Size): void {
+    const owned = new Map(this.pages.map((p) => [p, this.ownedBy(p)]))
+    const dx = (page.width - size.width) / 2
+    page.set({ width: size.width, height: size.height, left: page.left + dx })
+    page.setCoords()
+    for (const o of owned.get(page) ?? []) {
+      o.set({ left: o.left + dx })
+      o.setCoords()
+    }
+    page.dirty = true
+    this.reorder(this.pages, owned)
   }
 
   removePage(page: Page): void {
