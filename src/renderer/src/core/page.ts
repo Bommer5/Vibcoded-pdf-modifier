@@ -63,4 +63,4 @@ export class Page extends Rect {
 }
 
 classRegistry.setClass(Page)
-FabricObject.customProperties.push('bg', 'shifts', 'ocr', 'covers')
+FabricObject.customProperties.push('bg', 'shifts', 'ocr', 'covers', 'flowFrom', 'flowOverflow')

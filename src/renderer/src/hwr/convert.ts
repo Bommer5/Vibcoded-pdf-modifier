@@ -1,4 +1,4 @@
-import { Textbox } from 'fabric'
+import { Point, Textbox } from 'fabric'
 import type { Editor } from '../core/editor'
 import { scenePoints, type InkObject } from '../tools/ink'
 import type { ToolManager } from '../tools/manager'
@@ -6,7 +6,7 @@ import { settings } from '../tools/settings'
 import type { Candidate } from './decode'
 import { handwriting } from './engine'
 import type { Stroke } from './ink-image'
-import { segment, textHeight, type Box } from './segment'
+import { rotate, segment, textHeight, type Box } from './segment'
 
 /** Zone de texte issue de l'écriture : propositions et traits d'origine (pour revenir à l'encre). */
 type HwrBox = Textbox & { hwr?: { alts: string[] } }
@@ -85,7 +85,14 @@ export class HandwritingConverter {
     // Hauteur de référence : l'écriture de la page en cours, pas seulement ces traits-ci
     const seg = segment(alive.map((_, i) => ({ id: i, points: strokes[i] })), textHeight(strokes))
     if (!seg.lines.length) return 0
-    const results = await handwriting.recognize(seg.lines.map((l) => l.strokes.map((i) => strokes[i])))
+    // Lignes penchées : redressées autour de leur centre avant la lecture
+    const straight = seg.lines.map((l) => {
+      const cx = (l.box.x0 + l.box.x1) / 2
+      const cy = (l.box.y0 + l.box.y1) / 2
+      const st = rotate(l.strokes.map((i) => strokes[i]), -l.angle, cx, cy)
+      return { strokes: st, box: boxOfStrokes(st), cx, cy }
+    })
+    const results = await handwriting.recognize(straight.map((l) => l.strokes))
     const made: { box: HwrBox; inks: InkObject[] }[] = []
     seg.lines.forEach((line, k) => {
       const cands = results[k] ?? []
@@ -94,7 +101,14 @@ export class HandwritingConverter {
       const inks = line.strokes.map((i) => alive[i]).filter((o) => this.ed.canvas.getObjects().includes(o))
       if (!inks.length) return
       const color = inks[0].ink?.color ?? settings.value.penColor
-      made.push({ box: this.textFor(best.text, line.box, color, cands), inks })
+      const st = straight[k]
+      const box = this.textFor(best.text, st.box, color, cands)
+      // Écriture nettement en biais (plus de 12°) : le texte suit la même pente.
+      if (Math.abs(line.angle) > 0.21) {
+        box.set({ angle: (line.angle * 180) / Math.PI })
+        box.setPositionByOrigin(new Point(st.cx, st.cy), 'center', 'center')
+      }
+      made.push({ box, inks })
     })
     if (!made.length) return 0
     await this.ed.history.transaction(() => {
@@ -213,3 +227,11 @@ export function accept(c: Candidate, strokes: number, manual: boolean): boolean 
 let ctx2d: CanvasRenderingContext2D | null = null
 const measureCtx = (): CanvasRenderingContext2D => (ctx2d ??= document.createElement('canvas').getContext('2d')!)
 
+const boxOfStrokes = (strokes: Stroke[]): Box => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const st of strokes) for (const [x, y] of st) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x)
+    y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+  }
+  return { x0, y0, x1, y1 }
+}

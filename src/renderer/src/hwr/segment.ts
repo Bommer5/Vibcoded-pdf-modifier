@@ -25,7 +25,7 @@ export interface Box {
 
 export interface Segmentation {
   /** Morceaux de ligne à reconnaître (indices des traits, dans l'ordre d'écriture). */
-  lines: { strokes: number[]; box: Box }[]
+  lines: { strokes: number[]; box: Box; angle: number }[]
   /** Traits gardés comme dessin. */
   drawings: number[]
 }
@@ -93,62 +93,87 @@ export function segment(input: InkStroke[], refHeight?: number): Segmentation {
     if (inside.length >= 2 && s.y1 - s.y0 > H * 1.3) drawings.add(s.i)
   }
 
-  // Lignes : bandes horizontales, des plus grands traits aux plus petits.
+  // Lignes : de gauche à droite, chaque trait rejoint la ligne qui se poursuit à sa hauteur
+  // (prolongée selon sa pente) : une ligne penchée ou qui ondule reste une seule ligne.
   const text = infos.filter((s) => !drawings.has(s.i))
   const small = (s: Info): boolean => s.y1 - s.y0 < H * 0.42 && s.x1 - s.x0 < H * 0.9
-  type Line = { members: Info[]; y0: number; y1: number; x0: number; x1: number }
+  type Line = { members: Info[]; x1: number }
   const lines: Line[] = []
+  const cx = (s: Box): number => (s.x0 + s.x1) / 2
   const cy = (s: Box): number => (s.y0 + s.y1) / 2
-  for (const s of text.filter((t) => !small(t)).sort((a, b) => cy(a) - cy(b))) {
-    const line = lines.find((l) => {
-      const overlap = Math.min(l.y1, s.y1) - Math.max(l.y0, s.y0)
-      return overlap > Math.min(l.y1 - l.y0, s.y1 - s.y0) * 0.45 || Math.abs(cy(l) - cy(s)) < H * 0.45
-    })
-    if (line) {
-      line.members.push(s)
-      // La bande s'élargit peu : une majuscule ou un jambage ne la fait pas déborder sur la suivante.
-      line.y0 = Math.min(line.y0, Math.max(s.y0, cy(line) - H))
-      line.y1 = Math.max(line.y1, Math.min(s.y1, cy(line) + H))
-      line.x0 = Math.min(line.x0, s.x0)
-      line.x1 = Math.max(line.x1, s.x1)
-    } else lines.push({ members: [s], y0: s.y0, y1: s.y1, x0: s.x0, x1: s.x1 })
+  /** Hauteur attendue de la ligne à l'abscisse x (droite des moindres carrés des derniers traits). */
+  const expected = (l: Line, x: number): number => {
+    const ms = l.members.filter((m) => !small(m)).slice(-6)
+    if (ms.length < 3) return median(ms.map(cy))
+    const fit = lineFit(ms.map((m) => [cx(m), cy(m)]))
+    // Pente bornée : une majuscule ou un jambage isolé ne fait pas basculer la ligne
+    const slope = Math.max(-0.45, Math.min(0.45, fit.slope))
+    return fit.y + slope * (x - fit.x)
+  }
+  for (const s of text.filter((t) => !small(t)).sort((a, b) => a.x0 - b.x0)) {
+    let best: Line | null = null
+    let bestD = Infinity
+    for (const l of lines) {
+      if (s.x0 - l.x1 > H * 3.2) continue // trop loin : nouveau morceau
+      const d = Math.abs(cy(s) - expected(l, cx(s)))
+      if (d < H * 0.6 && d < bestD) {
+        bestD = d
+        best = l
+      }
+    }
+    if (best) {
+      best.members.push(s)
+      best.x1 = Math.max(best.x1, s.x1)
+    } else lines.push({ members: [s], x1: s.x1 })
   }
   // Petits traits (points, accents, apostrophes, virgules) : la ligne la plus proche
   for (const s of text.filter(small)) {
     let best: Line | null = null
     let bestD = Infinity
     for (const l of lines) {
-      const dx = s.x1 < l.x0 ? l.x0 - s.x1 : s.x0 > l.x1 ? s.x0 - l.x1 : 0
-      const dy = s.y1 < l.y0 ? l.y0 - s.y1 : s.y0 > l.y1 ? s.y0 - l.y1 : 0
-      // Un accent est au-dessus de sa ligne : la distance verticale vers le haut compte moins.
-      const d = dx * 1.5 + (s.y1 < l.y0 ? dy * 0.6 : dy)
+      const lx0 = Math.min(...l.members.map((m) => m.x0))
+      const dx = s.x1 < lx0 ? lx0 - s.x1 : s.x0 > l.x1 ? s.x0 - l.x1 : 0
+      const dyc = cy(s) - expected(l, cx(s))
+      // Un accent est au-dessus de sa ligne : la distance vers le haut compte moins.
+      const d = dx * 1.5 + Math.max(0, Math.abs(dyc) - H * 0.5) * (dyc < 0 ? 0.6 : 1)
       if (d < bestD) {
         bestD = d
         best = l
       }
     }
     if (best && bestD < H * 1.6) best.members.push(s)
-    else lines.push({ members: [s], y0: s.y0, y1: s.y1, x0: s.x0, x1: s.x1 })
+    else lines.push({ members: [s], x1: s.x1 })
   }
 
-  // Grand blanc horizontal : deux morceaux distincts.
   const out: Segmentation['lines'] = []
-  for (const l of lines.sort((a, b) => cy(a) - cy(b))) {
-    const ms = [...l.members].sort((a, b) => a.x0 - b.x0)
-    let cur: Info[] = []
-    let right = -Infinity
-    const flush = (): void => {
-      if (!cur.length) return
-      const box = cur.reduce((b, s) => ({ x0: Math.min(b.x0, s.x0), y0: Math.min(b.y0, s.y0), x1: Math.max(b.x1, s.x1), y1: Math.max(b.y1, s.y1) }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity })
-      out.push({ strokes: cur.map((s) => s.i).sort((a, b) => a - b), box })
-      cur = []
-    }
-    for (const s of ms) {
-      if (cur.length && s.x0 - right > H * 3.2) flush()
-      cur.push(s)
-      right = Math.max(right, s.x1)
-    }
-    flush()
+  for (const l of lines) {
+    const box = l.members.reduce((b, s) => ({ x0: Math.min(b.x0, s.x0), y0: Math.min(b.y0, s.y0), x1: Math.max(b.x1, s.x1), y1: Math.max(b.y1, s.y1) }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity })
+    const big = l.members.filter((m) => !small(m))
+    const fit = big.length >= 2 ? lineFit(big.map((m) => [cx(m), cy(m)])) : { slope: 0 }
+    // Angle de la ligne (redressée avant la lecture) ; borné à ±25°
+    const angle = Math.atan(Math.max(-0.47, Math.min(0.47, fit.slope)))
+    out.push({ strokes: l.members.map((s) => s.i).sort((a, b) => a - b), box, angle })
   }
+  out.sort((a, b) => a.box.y0 - b.box.y0 || a.box.x0 - b.box.x0)
   return { lines: out, drawings: [...drawings] }
+}
+
+/** Droite des moindres carrés (pente et point moyen). */
+function lineFit(pts: number[][]): { slope: number; x: number; y: number } {
+  const n = pts.length
+  const mx = pts.reduce((a, p) => a + p[0], 0) / n
+  const my = pts.reduce((a, p) => a + p[1], 0) / n
+  let sxx = 0, sxy = 0
+  for (const [x, y] of pts) {
+    sxx += (x - mx) * (x - mx)
+    sxy += (x - mx) * (y - my)
+  }
+  return { slope: sxx > 1e-6 ? sxy / sxx : 0, x: mx, y: my }
+}
+
+/** Fait tourner des traits autour d'un point (redressement d'une ligne penchée). */
+export function rotate(strokes: Stroke[], angle: number, cx: number, cy: number): Stroke[] {
+  if (Math.abs(angle) < 1e-3) return strokes
+  const c = Math.cos(angle), s = Math.sin(angle)
+  return strokes.map((st) => st.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c] as [number, number]))
 }

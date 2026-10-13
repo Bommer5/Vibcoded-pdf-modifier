@@ -249,6 +249,47 @@ function inkDiff(a, b) {
     await win.evaluate(() => window.__feuillet.editor.canvas.discardActiveObject())
   }
 
+  // Débordement : un paragraphe en bas de page grandit ; la dernière ligne poussée hors de la
+  // page passe en haut d'une page de suite (vectorielle), qui disparaît s'il rétrécit.
+  {
+    const { PDFDocument, StandardFonts } = require('pdf-lib')
+    const pdf = await PDFDocument.create()
+    const font = await pdf.embedFont(StandardFonts.Helvetica)
+    const pg = pdf.addPage([595.28, 841.89])
+    pg.drawText('Titre en haut de page', { x: 60, y: 780, size: 18, font })
+    const para = ['Ce paragraphe se trouve vers le bas de la page et va grandir', 'beaucoup quand on lui ajoute des phrases pendant le test.']
+    para.forEach((l, i) => pg.drawText(l, { x: 60, y: 160 - i * 16, size: 12, font }))
+    pg.drawText('Derniere ligne tout en bas', { x: 60, y: 40, size: 12, font })
+    const data = Buffer.from(await pdf.save()).toString('base64')
+    await win.evaluate(() => window.feuillet.setDirty(false))
+    await win.evaluate((b) => window.__feuillet.importer.open([{ name: 'bas.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]), data)
+    await win.waitForTimeout(600)
+    await win.evaluate(() => { const { editor } = window.__feuillet; editor.viewport.showRect(editor.doc.box(editor.doc.pages[0])); window.__feuillet.tools.set('edittext') })
+    await clickAt(100, 841.89 - 160 - 4)
+    await win.waitForFunction(() => window.__feuillet.editor.canvas.getActiveObject()?.text !== undefined, null, { timeout: 8000 }).catch(() => {})
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type(' Une longue phrase ajoutée pour pousser la suite vers le bas de la page. Encore une phrase, puis une autre, et encore une autre pour être bien sûr de déborder de la page. Et une dernière phrase assez longue pour ajouter encore deux lignes au paragraphe.')
+    await win.keyboard.press('Escape')
+    await win.waitForTimeout(1200)
+    const st = await win.evaluate(async () => {
+      const { editor } = window.__feuillet
+      const pages = editor.doc.pages
+      const ov = editor.doc.content.find((o) => o.flowOverflow)
+      return { shifts: pages[0].shifts, pages: pages.length, flowFrom: !!pages[1]?.flowFrom, overflow: !!ov, onPage2: ov ? editor.doc.pageAt(ov.getCenterPoint()) === pages[1] : false, crop: ov && { y: ov.cropY, h: ov.height } }
+    })
+    check('overflow: a continuation page is created after the page', st.pages === 2 && st.flowFrom, JSON.stringify(st))
+    check('overflow: the pushed line is shown at the top of the next page', st.overflow && st.onPage2, JSON.stringify(st))
+    const file = await exportPdf('overflow.pdf')
+    const page2 = execFileSync('pdftotext', ['-f', '2', '-l', '2', file, '-']).toString()
+    const page1 = execFileSync('pdftotext', ['-f', '1', '-l', '1', file, '-']).toString()
+    check('overflow export: the line is on page 2, as real text', /Derniere ligne tout en bas/.test(page2) && !/Derniere ligne/.test(page1.replace(/\s+/g, ' ').split('page.').pop() ?? ''), JSON.stringify(page2.slice(0, 80)))
+    // Rétrécit : Ctrl+Z jusqu'à revenir au texte d'origine → plus de page de suite
+    for (let i = 0; i < 6; i++) { await win.keyboard.press('Control+z'); await win.waitForTimeout(150) }
+    await win.waitForTimeout(600)
+    const back = await win.evaluate(() => ({ pages: window.__feuillet.editor.doc.pages.length, overflow: window.__feuillet.editor.doc.content.some((o) => o.flowOverflow) }))
+    check('overflow: undo removes the continuation page', back.pages === 1 && !back.overflow, JSON.stringify(back))
+  }
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()

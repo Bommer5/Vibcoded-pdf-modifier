@@ -18,6 +18,7 @@ import { chartObject, isChart } from './charts/chart-object'
 import { TableEditor } from './objects/table-editor'
 import { penActionOf, ToolManager, type Tool } from './tools/manager'
 import { HandwritingConverter } from './hwr/convert'
+import { buildInk } from './tools/ink'
 import { MenuBar, type Menu } from './ui/menubar'
 import { Welcome } from './ui/welcome'
 import { applyTheme, openPreferences } from './ui/preferences'
@@ -426,7 +427,7 @@ canvas.on('object:added', ({ target }) => {
   })
 })
 // Paragraphe modifié qui grandit ou rétrécit : la suite de la colonne suit.
-new TextFlow(editor)
+new TextFlow(editor, (id, i, size) => importer.pdfPageImage(id, i, size))
 // Outils PDF expliqués sur place (bande d'aide, encadré au survol, grisés sans PDF).
 new PdfToolsGuide(editor, tools, { open: run('open'), writeText: () => setTool('text') })
 // Clic droit : objets sous le pointeur (y compris ceux du dessous) et commandes usuelles.
@@ -623,6 +624,8 @@ canvas.on('object:added', () => welcome.visible && !doc.isEmpty && welcome.hide(
 const make = {
   textbox: (text: string, o: object) => new Textbox(text, o),
   rect: (o: object) => new Rect(o),
-  table: (rows: number, cols: number) => Table.create(rows, cols)
+  table: (rows: number, cols: number) => Table.create(rows, cols),
+  /** Trait de stylo à partir de points (coordonnées document) : tests de l'écriture → texte. */
+  ink: (points: [number, number][], size = 2, color = '#1b1b1f') => buildInk({ tool: 'pen', points: points.map(([x, y]) => [x, y, 0.5]), size, color, style: 'solid', pressure: false })
 }
 Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, openPreferences: () => openPreferences(shortcuts) } })

@@ -433,7 +433,7 @@ export class Importer {
    * Page de PDF en image (≈ 220 ppp, nette à l'écran et à l'impression). Elle garde la
    * référence de sa page d'origine : l'export PDF la réintègre en vectoriel (texte compris).
    */
-  private async pdfPageImage(id: string, index: number, size: { width: number; height: number }): Promise<FabricImage> {
+  async pdfPageImage(id: string, index: number, size: { width: number; height: number }): Promise<FabricImage> {
     const scale = Math.min(3, 3600 / Math.max(size.width, size.height))
     const w = Math.max(1, Math.round(size.width * scale))
     const h = Math.max(1, Math.round(size.height * scale))

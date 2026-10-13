@@ -124,10 +124,19 @@ export function beamSearch(
         const ch = charset[c - 1]
         let node: TrieNode | null = b.node
         let lm = b.lm
+        let glue = ''
+        let penalty = 0
         if (trie) {
           if (isLetter[c]) {
             const from = b.node ?? trie
-            const child = from.c[lower[c]]
+            let child = from.c[lower[c]]
+            if (!child && b.node && b.node.w !== undefined && trie.c[lower[c]]) {
+              // Mots collés (espace minuscule) : le mot précédent est complet, un autre commence.
+              child = trie.c[lower[c]]
+              lm += b.node.w
+              glue = ' '
+              penalty = -1.6
+            }
             if (!child) continue // pas de mot du dictionnaire qui continue ainsi
             node = child
           } else {
@@ -138,8 +147,8 @@ export function beamSearch(
             node = null
           }
         }
-        const p = lp[row + c] + (c === b.last ? b.pb : tot)
-        const text = b.text + ch
+        const p = lp[row + c] + (c === b.last && !glue ? b.pb : tot) + penalty
+        const text = b.text + glue + ch
         put(text, () => ({ text, last: c, pb: -Infinity, pnb: -Infinity, node, lm }), -Infinity, p)
       }
     }
