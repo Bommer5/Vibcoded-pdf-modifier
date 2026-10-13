@@ -267,6 +267,28 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   await win.evaluate(() => window.__feuillet.settings.set('penButton1', 'lasso'))
   await win.keyboard.press('Escape')
 
+  // Surligneur aimanté au texte écrit dans le document (zone de texte), pas seulement au PDF
+  const tb = await win.evaluate(() => {
+    const { editor, make, tools } = window.__feuillet
+    editor.viewport.zoomAt(1, null)
+    const p = editor.doc.currentPage()
+    const t = make.textbox('Bonjour le monde entier', { left: p.left + 80, top: p.top + 300, width: 400, fontSize: 24 })
+    editor.add(t)
+    editor.canvas.discardActiveObject()
+    tools.set('highlighter')
+    const v = editor.canvas.viewportTransform
+    const r = t.getBoundingRect()
+    return { x0: r.left * v[0] + v[4], x1: (r.left + 200) * v[0] + v[4], y: (r.top + r.height / 2) * v[3] + v[5], top: r.top, bottom: r.top + r.height }
+  })
+  const wsb = await win.locator('#workspace').boundingBox()
+  await win.mouse.move(wsb.x + tb.x0, wsb.y + tb.y + 4)
+  await win.mouse.down()
+  for (let i = 1; i <= 10; i++) await win.mouse.move(wsb.x + tb.x0 + ((tb.x1 - tb.x0) * i) / 10, wsb.y + tb.y + 4 - i * 0.8)
+  await win.mouse.up()
+  await win.waitForTimeout(400)
+  const hl = await win.evaluate(() => { const o = window.__feuillet.editor.doc.content.at(-1); const r = o.getBoundingRect(); return { markup: o.markup?.kind ?? null, ink: !!o.ink, top: r.top, bottom: r.top + r.height } })
+  check('highlighter snaps onto text written in the document', hl.markup === 'highlight' && !hl.ink && hl.top >= tb.top - 2 && hl.bottom <= tb.bottom + 2, JSON.stringify({ hl, tb }))
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()

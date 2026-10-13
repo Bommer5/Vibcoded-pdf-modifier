@@ -1,8 +1,9 @@
-import { Point, util } from 'fabric'
+import { Point, util, type IText } from 'fabric'
 import type { Editor } from '../core/editor'
 import { setOverlay } from '../core/overlay'
 import type { Page } from '../core/page'
 import { buildMarkup, lineRects, pageWords, wordsBetween, wordsText, type DocWord, type MarkupKind } from '../pdf/text'
+import { isTextObject } from '../io/pdf-text'
 
 const MARKUP_COLORS = ['#ffe600', '#7cf06b', '#5ad1ff', '#ff8ad8', '#ff6b6b']
 
@@ -66,8 +67,10 @@ export class TextSelection {
 
   /** Mots touchés par un trait de surligneur (aimantation) : null si le trait ne passe pas sur du texte. */
   async snapStroke(points: [number, number][], page: Page | undefined): Promise<DocWord[] | null> {
-    if (!page || page.bg.kind !== 'pdf' || points.length < 2) return null
-    const words = await pageWords(page)
+    if (!page || points.length < 2) return null
+    // Texte du PDF (ou reconnu par OCR) et texte écrit dans le document (zones de texte,
+    // paragraphes modifiés) : le surligneur s'aimante aux deux.
+    const words = [...(await pageWords(page)), ...this.objectWords(page)]
     if (!words.length) return null
     const ys = points.map((p) => p[1])
     const heights = words.map((w) => w.y1 - w.y0).sort((a, b) => a - b)
@@ -85,6 +88,49 @@ export class TextSelection {
     if (!hit.length) return null
     const best = hit.reduce((a, b) => (Math.abs((a.y0 + a.y1) / 2 - midY) <= Math.abs((b.y0 + b.y1) / 2 - midY) ? a : b))
     return hit.filter((w) => w.line === best.line && w.page === best.page)
+  }
+
+  /**
+   * Mots des zones de texte posées sur la page (repère du document), ligne par ligne, d'après
+   * la mise en page calculée par Fabric. Textes tournés : ignorés (surlignage en biais).
+   */
+  private objectWords(page: Page): DocWord[] {
+    const out: DocWord[] = []
+    let line = 100000 // après les lignes du PDF et de l'OCR
+    for (const o of this.ed.doc.content) {
+      if (!isTextObject(o) || !o.visible || Math.abs(o.angle % 360) > 0.5) continue
+      if (this.ed.doc.pageAt(o.getCenterPoint()) !== page) continue
+      const t = o as IText & { __charBounds: { left: number; width: number }[][]; _getLineLeftOffset(i: number): number }
+      const m = o.calcTransformMatrix()
+      const at = (x: number, y: number): Point => util.transformPoint(new Point(x, y), m)
+      let top = -o.height / 2
+      t._textLines.forEach((chars, li) => {
+        // Fabric : la dernière ligne ne compte pas l'interligne ; ailleurs, il s'ajoute au-dessus.
+        const lh = t.lineHeight || 1
+        const h = t.getHeightOfLine(li) / (li === t._textLines.length - 1 ? lh : 1)
+        const fs = t.getHeightOfLine(li) / (lh * 1.13)
+        const y0 = top + h - fs * 1.13
+        const y1 = top + h - fs * 0.05
+        const left = t._getLineLeftOffset(li) - o.width / 2
+        const bounds = t.__charBounds[li] ?? []
+        let start = -1
+        const flush = (end: number): void => {
+          if (start < 0) return
+          const a = at(left + bounds[start].left, y0)
+          const b = at(left + bounds[end - 1].left + bounds[end - 1].width, y1)
+          out.push({ text: chars.slice(start, end).join(''), x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y), x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y), line, page, index: out.length })
+          start = -1
+        }
+        chars.forEach((ch, i) => {
+          if (/\s/.test(ch)) flush(i)
+          else if (start < 0) start = i
+        })
+        flush(chars.length)
+        line++
+        top += h
+      })
+    }
+    return out
   }
 
   private async apply(kind: MarkupKind): Promise<void> {
