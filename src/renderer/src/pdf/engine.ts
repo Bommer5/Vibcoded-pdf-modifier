@@ -1,4 +1,4 @@
-import type { PdfChar, PdfCharFont, PdfGlyphFont, PdfFontInfo, PdfMask, PdfShift, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
+import type { PdfChar, PdfCharFont, PdfGlyphFont, PdfFontInfo, PdfMask, PdfShift, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord, PdfShape } from './protocol'
 
 /**
  * Accès au moteur PDF natif (PDFium/WASM dans un worker). Les requêtes de rendu
@@ -61,8 +61,13 @@ class PdfEngine {
     await Promise.all([...this.opened.keys()].map((d) => this.close(d)))
   }
 
-  async render(doc: string, page: number, width: number, height: number, masks?: PdfMask[], shifts?: PdfShift[]): Promise<ImageBitmap> {
-    return (await this.call({ op: 'render', doc, page, width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)), masks, shifts: shifts?.length ? shifts : undefined })).bitmap!
+  async render(doc: string, page: number, width: number, height: number, masks?: PdfMask[], shifts?: PdfShift[], hidden?: number[]): Promise<ImageBitmap> {
+    return (await this.call({ op: 'render', doc, page, width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)), masks, shifts: shifts?.length ? shifts : undefined, hidden: hidden?.length ? hidden : undefined })).bitmap!
+  }
+
+  /** Trait ou forme vectorielle sous un point (coordonnées de la page), ou null. */
+  async shapeAt(doc: string, page: number, x: number, y: number, tolerance: number, hidden?: number[]): Promise<PdfShape | null> {
+    return (await this.call({ op: 'shapeat', doc, page, x, y, tolerance, hidden })).shape ?? null
   }
 
   private charCache = new Map<string, Promise<{ chars: PdfChar[]; fonts: PdfCharFont[] }>>()
@@ -93,7 +98,7 @@ class PdfEngine {
   }
 
   /** PDF dont le texte des zones masquées est réellement supprimé. */
-  async redacted(doc: string, pages: { page: number; masks: PdfMask[]; shifts?: PdfShift[] }[]): Promise<Uint8Array> {
+  async redacted(doc: string, pages: { page: number; masks: PdfMask[]; shifts?: PdfShift[]; hidden?: number[] }[]): Promise<Uint8Array> {
     return (await this.call({ op: 'redacted', doc, pages })).file!
   }
 

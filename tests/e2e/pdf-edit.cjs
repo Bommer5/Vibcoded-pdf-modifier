@@ -290,6 +290,68 @@ function inkDiff(a, b) {
     check('overflow: undo removes the continuation page', back.pages === 1 && !back.overflow, JSON.stringify(back))
   }
 
+  // Traits et formes du PDF : « Modifier PDF » sur une ligne, un cadre, un rond, une courbe
+  {
+    const { PDFDocument, StandardFonts, rgb } = require('pdf-lib')
+    const pdf = await PDFDocument.create()
+    const font = await pdf.embedFont(StandardFonts.Helvetica)
+    const pg = pdf.addPage([595.28, 841.89])
+    pg.drawText('Un texte au-dessus des formes', { x: 60, y: 780, size: 14, font })
+    pg.drawLine({ start: { x: 60, y: 700 }, end: { x: 400, y: 700 }, thickness: 3, color: rgb(0.9, 0.1, 0.1) })
+    pg.drawLine({ start: { x: 60, y: 650 }, end: { x: 400, y: 650 }, thickness: 2, color: rgb(0, 0, 0), dashArray: [8, 4] })
+    pg.drawRectangle({ x: 60, y: 450, width: 200, height: 120, borderColor: rgb(0, 0.3, 0.8), borderWidth: 2.5, color: rgb(0.9, 0.95, 1) })
+    pg.drawCircle({ x: 420, y: 510, size: 50, color: rgb(0.2, 0.7, 0.3) })
+    pg.drawSvgPath('M 0 0 C 50 -80 150 80 200 0', { x: 60, y: 300, borderColor: rgb(0.5, 0, 0.5), borderWidth: 2 })
+    const data = Buffer.from(await pdf.save()).toString('base64')
+    await win.evaluate(() => window.feuillet.setDirty(false))
+    await win.evaluate((b) => window.__feuillet.importer.open([{ name: 'formes.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]), data)
+    await win.waitForTimeout(600)
+    await win.evaluate(() => { const { editor } = window.__feuillet; editor.viewport.showRect(editor.doc.box(editor.doc.pages[0])) })
+    const H = 841.89
+    const lift = async (x, y) => {
+      await win.evaluate(() => window.__feuillet.tools.set('edittext'))
+      await clickAt(x, H - y)
+      await win.waitForTimeout(700)
+      return win.evaluate(() => {
+        const o = window.__feuillet.editor.canvas.getActiveObject()
+        const p = window.__feuillet.editor.doc.pages[0]
+        if (!o || o.text !== undefined) return null
+        const r = o.getBoundingRect()
+        return { type: o.type, stroke: o.stroke, fill: o.fill, w: o.strokeWidth, dash: o.strokeDashArray, hidden: p.hidden, box: { x: r.left - p.left, y: r.top - p.top, w: r.width, h: r.height } }
+      })
+    }
+    const line = await lift(200, 700)
+    check('PDF line becomes an editable shape (same colour, thickness)', line && line.type === 'path' && /^#e[56]1a1a$|^#e51919$|^#e61a1a$/.test(line.stroke) && Math.abs(line.w - 3) < 0.2 && line.hidden?.length === 1, JSON.stringify(line))
+    const dashed = await lift(200, 650)
+    check('dashed line keeps its dashes', dashed && Array.isArray(dashed.dash) && dashed.dash[0] === 8, JSON.stringify(dashed))
+    const rect = await lift(160, 510)
+    check('framed rectangle: border and fill kept', rect && rect.stroke && rect.fill && rect.fill !== '' && Math.abs(rect.box.w - 202.5) < 3, JSON.stringify(rect))
+    const circle = await lift(420, 510)
+    check('filled circle taken by clicking inside', circle && circle.fill && /^#3[34]b[34]4[cd]$/.test(circle.fill) && Math.abs(circle.box.w - 100) < 3, JSON.stringify(circle))
+    const curve = await lift(160, 300 + 0)
+    const curve2 = curve ?? (await lift(110, 300 - 30))
+    check('curve (Bézier) taken', !!curve2 && curve2.type === 'path', JSON.stringify(curve2))
+    // La ligne rouge déplacée : sa place d'origine devient blanche (écran et export)
+    await win.evaluate(() => {
+      const { editor } = window.__feuillet
+      const red = editor.doc.content.find((o) => o.pdfShape && o.strokeWidth > 2.9 && o.strokeWidth < 3.1)
+      red.set({ top: red.top + 40 })
+      red.setCoords()
+      editor.canvas.requestRenderAll()
+    })
+    await win.waitForTimeout(500)
+    const file = await exportPdf('formes.pdf')
+    execFileSync('pdftoppm', ['-r', '72', '-png', '-singlefile', file, path.join(outDir, 'formes')])
+    const img = await readGray(app, path.join(outDir, 'formes.png'))
+    const at = (x, y) => img.gray[Math.round(y) * img.width + Math.round(x)]
+    check('export: the line left its old place (white there, drawn where moved)', at(200, H - 700) > 200 && at(200, H - 700 + 40) < 160, `${at(200, H - 700)} / ${at(200, H - 700 + 40)}`)
+    check('export: shapes stay vector (no image)', !/Image/.test(execFileSync('pdfimages', ['-list', file]).toString().split('\n').slice(2).join('')), '')
+    for (let i = 0; i < 8; i++) { await win.keyboard.press('Control+z'); await win.waitForTimeout(120) }
+    await win.waitForTimeout(300)
+    const restored = await win.evaluate(() => ({ hidden: window.__feuillet.editor.doc.pages[0].hidden ?? [], lifted: window.__feuillet.editor.doc.content.filter((o) => o.pdfShape).length }))
+    check('undo puts the shapes back into the PDF', restored.hidden.length === 0 && restored.lifted === 0, JSON.stringify(restored))
+  }
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()

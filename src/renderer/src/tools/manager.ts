@@ -5,6 +5,7 @@ import { ShapedText } from '../objects/shaped-text'
 import { Table } from '../objects/table'
 import { buildMarkup } from '../pdf/text'
 import { editTextAt } from '../pdf/edit-text'
+import { editShapeAt } from '../pdf/edit-shape'
 import { hasNative, nativeCountInside, nativeRecognize, type Recognized } from '../native/core'
 import type { TextSelection } from '../ui/text-selection'
 import { buildInk, eraseInk, nearObject, scenePoints, type InkObject, type InkPoint } from './ink'
@@ -198,9 +199,15 @@ export class ToolManager {
       return page ? this.createTable(p, page) : this.offPage()
     }
     if (!erasing && this.tool === 'edittext') {
-      void editTextAt(this.ed, p).then((box) => {
-        if (box) this.set('select')
-        else this.ed.notify('Cliquez sur un texte du PDF pour le modifier', 'info')
+      void editTextAt(this.ed, p).then(async (box) => {
+        if (box) return this.set('select')
+        // Pas de texte : un trait, un cadre, une flèche, une forme du PDF ?
+        const shape = await editShapeAt(this.ed, p)
+        if (shape) {
+          this.set('select')
+          this.ed.canvas.setActiveObject(shape)
+          this.ed.canvas.requestRenderAll()
+        } else this.ed.notify('Cliquez sur un texte, un trait ou une forme du PDF pour le modifier', 'info')
       })
       return
     }

@@ -84,12 +84,30 @@ export interface PdfOutlineItem {
   children: PdfOutlineItem[]
 }
 
+/** Trait ou forme vectorielle d'une page (objet « path » du PDF), en coordonnées affichées. */
+export interface PdfShape {
+  /** Rang de l'objet dans la page (pour le retirer du PDF). */
+  index: number
+  /** Chemin SVG (points, y vers le bas). */
+  d: string
+  stroke: string | null
+  fill: string | null
+  /** Règle de remplissage : 'evenodd' ou 'nonzero'. */
+  fillRule: 'evenodd' | 'nonzero'
+  width: number
+  dash: number[] | null
+  cap: 'butt' | 'round' | 'square'
+  join: 'miter' | 'round' | 'bevel'
+  opacity: number
+}
+
 export type PdfRequest =
   | { op: 'open'; doc: string; data: Uint8Array; password?: string }
   | { op: 'close'; doc: string }
-  | { op: 'render'; doc: string; page: number; width: number; height: number; masks?: PdfMask[]; shifts?: PdfShift[] }
+  | { op: 'render'; doc: string; page: number; width: number; height: number; masks?: PdfMask[]; shifts?: PdfShift[]; hidden?: number[] }
+  | { op: 'shapeat'; doc: string; page: number; x: number; y: number; tolerance: number; hidden?: number[] }
   | { op: 'fontinfo'; doc: string; page: number; x: number; y: number }
-  | { op: 'redacted'; doc: string; pages: { page: number; masks: PdfMask[]; shifts?: PdfShift[] }[] }
+  | { op: 'redacted'; doc: string; pages: { page: number; masks: PdfMask[]; shifts?: PdfShift[]; hidden?: number[] }[] }
   | { op: 'text'; doc: string; page: number }
   | { op: 'outline'; doc: string }
   | { op: 'attachment'; doc: string; name: string }
@@ -98,5 +116,5 @@ export type PdfRequest =
   | { op: 'glyphs'; doc: string; page: number; char: number; codepoints: number[]; strict: number[] }
 
 export type PdfResponse =
-  | { ok: true; pages?: PdfPageInfo[]; bitmap?: ImageBitmap; words?: PdfWord[]; outline?: PdfOutlineItem[]; file?: Uint8Array | null; font?: PdfFontInfo | null; decrypted?: Uint8Array; chars?: PdfChar[]; fonts?: PdfCharFont[]; glyphFont?: PdfGlyphFont | null }
+  | { ok: true; pages?: PdfPageInfo[]; bitmap?: ImageBitmap; words?: PdfWord[]; outline?: PdfOutlineItem[]; file?: Uint8Array | null; font?: PdfFontInfo | null; decrypted?: Uint8Array; chars?: PdfChar[]; fonts?: PdfCharFont[]; glyphFont?: PdfGlyphFont | null; shape?: PdfShape | null }
   | { ok: false; error: string }

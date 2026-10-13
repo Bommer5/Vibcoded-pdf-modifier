@@ -2,6 +2,7 @@ import type { FabricObject, Point } from 'fabric'
 import type { Editor } from '../core/editor'
 import type { Page } from '../core/page'
 import { paragraphAt, wordAt, type Box4 } from '../pdf/edit-text'
+import { shapeAt } from '../pdf/edit-shape'
 import { pageWords } from '../pdf/text'
 import { canRecognize, recognizePage } from '../pdf/ocr'
 import type { Tool, ToolManager } from '../tools/manager'
@@ -110,11 +111,24 @@ export class PdfToolsGuide {
     const p = this.lastPoint
     if (!p || !PDF_TOOLS.includes(this.tools.tool)) return
     const edit = this.tools.tool === 'edittext'
-    const box = edit ? await paragraphAt(this.ed, p) : await wordAt(this.ed, p)
+    let box = edit ? await paragraphAt(this.ed, p) : await wordAt(this.ed, p)
+    let label = edit ? 'Cliquer pour modifier ce texte' : 'Glisser pour sélectionner'
+    // Modifier PDF hors du texte : trait, cadre, flèche ou forme sous le pointeur
+    if (edit && !box) {
+      const found = await shapeAt(this.ed, p)
+      if (found) {
+        const b = pathBox(found.shape.d)
+        const L = found.page.left
+        const T = found.page.top + found.dy
+        const pad = found.shape.width / 2
+        box = { x0: L + b.x0 - pad, y0: T + b.y0 - pad, x1: L + b.x1 + pad, y1: T + b.y1 + pad }
+        label = 'Cliquer pour modifier ce trait / cette forme'
+      }
+    }
     if (p !== this.lastPoint) return
     this.hovered = box
     this.hoverBox.classList.toggle('word', !edit)
-    this.hoverBox.querySelector('.pdf-hover-label')!.textContent = edit ? 'Cliquer pour modifier ce texte' : 'Glisser pour sélectionner'
+    this.hoverBox.querySelector('.pdf-hover-label')!.textContent = label
     this.place()
   }
 
@@ -163,7 +177,7 @@ export class PdfToolsGuide {
     let html: string
     if (state === 'ok') {
       html = edit
-        ? `${icon('edittext', 18)}<span><b>Modifier PDF</b> — survolez le texte : le paragraphe s’encadre. <b>Cliquez</b> pour le réécrire, puis <kbd>Échap</kbd> pour terminer.</span>`
+        ? `${icon('edittext', 18)}<span><b>Modifier PDF</b> — survolez le texte (le paragraphe s’encadre) ou un trait, un cadre, une forme. <b>Cliquez</b> pour le modifier, puis <kbd>Échap</kbd> pour terminer.</span>`
         : `${icon('textselect', 18)}<span><b>Annoter PDF</b> — <b>glissez</b> sur le texte du PDF, puis choisissez <b>Copier</b>, <b>Surligner</b>, <b>Souligner</b> ou <b>Barrer</b>.</span>`
     } else {
       const why = state === 'nopdf'
@@ -204,4 +218,12 @@ export class PdfToolsGuide {
     this.banner.classList.toggle('empty', state !== 'ok')
     this.banner.hidden = false
   }
+}
+
+/** Boîte d'un chemin SVG (points M / L / C). */
+function pathBox(d: string): { x0: number; y0: number; x1: number; y1: number } {
+  const n = (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number)
+  const xs = n.filter((_, i) => i % 2 === 0)
+  const ys = n.filter((_, i) => i % 2 === 1)
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
 }

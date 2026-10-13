@@ -5,7 +5,7 @@
  */
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium'
 import wasmUrl from '@embedpdf/pdfium/pdfium.wasm?url'
-import type { PdfChar, PdfCharFont, PdfGlyphFont, PdfFontInfo, PdfMask, PdfShift, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord } from './protocol'
+import type { PdfChar, PdfCharFont, PdfGlyphFont, PdfFontInfo, PdfMask, PdfShift, PdfOutlineItem, PdfPageInfo, PdfRequest, PdfResponse, PdfWord, PdfShape } from './protocol'
 
 const FPDF_ANNOT = 0x01
 const FPDF_REVERSE_BYTE_ORDER = 0x10 // sortie RGBA au lieu de BGRA
@@ -20,6 +20,7 @@ interface Doc {
 }
 
 const FPDF_PAGEOBJ_TEXT = 1
+const FPDF_PAGEOBJ_PATH = 2
 
 let engine: Promise<WrappedPdfiumModule> | null = null
 const docs = new Map<string, Doc>()
@@ -136,10 +137,12 @@ function getDoc(id: string): Doc {
   return doc
 }
 
-async function render(id: string, index: number, width: number, height: number, masks?: PdfMask[], shifts?: PdfShift[]): Promise<ImageBitmap> {
+async function render(id: string, index: number, width: number, height: number, masks?: PdfMask[], shifts?: PdfShift[], hidden?: number[]): Promise<ImageBitmap> {
   const m = await pdfium()
   const doc = getDoc(id)
   const page = m.FPDF_LoadPage(doc.handle, index)
+  // Traits et formes repris dans le document (modifiables) : retirés de la page d'origine.
+  removeObjects(m, page, hidden)
   // Le texte modifié est retiré de la page chargée (en mémoire seulement) avant le rendu.
   let leftovers = masks?.length ? removeTextIn(m, page, doc.pages[index], masks).leftovers : []
   if (shifts?.length) leftovers = shiftContent(m, page, doc.pages[index], shifts, leftovers)
@@ -158,6 +161,174 @@ async function render(id: string, index: number, width: number, height: number, 
     m.FPDFBitmap_Destroy(bmp)
     m.FPDF_ClosePage(page)
   }
+}
+
+/** Retire de la page chargée les objets repris dans le document (rangs d'origine). */
+function removeObjects(m: WrappedPdfiumModule, page: number, hidden?: number[]): number {
+  if (!hidden?.length) return 0
+  let n = 0
+  for (const i of [...new Set(hidden)].sort((a, b) => b - a)) {
+    const obj = m.FPDFPage_GetObject(page, i)
+    if (obj && m.FPDFPage_RemoveObject(page, obj)) {
+      m.FPDFPageObj_Destroy(obj)
+      n++
+    }
+  }
+  return n
+}
+
+/**
+ * Trait ou forme vectorielle sous un point (coordonnées affichées) : le plus au-dessus, au
+ * plus près du trait (ou dedans s'il est rempli). Les grands fonds blancs sont ignorés.
+ */
+async function shapeAt(id: string, index: number, x: number, y: number, tolerance: number, hidden?: number[]): Promise<PdfShape | null> {
+  const m = await pdfium()
+  const doc = getDoc(id)
+  const info = doc.pages[index]
+  const page = m.FPDF_LoadPage(doc.handle, index)
+  const buf = m.pdfium.wasmExports.malloc(64)
+  const skip = new Set(hidden ?? [])
+  try {
+    for (let i = m.FPDFPage_CountObjects(page) - 1; i >= 0; i--) {
+      if (skip.has(i)) continue
+      const obj = m.FPDFPage_GetObject(page, i)
+      if (m.FPDFPageObj_GetType(obj) !== FPDF_PAGEOBJ_PATH) continue
+      if (!m.FPDFPageObj_GetBounds(obj, buf, buf + 4, buf + 8, buf + 12)) continue
+      const [l, b, r, t] = f32(m, buf, 4)
+      const [ax, ay] = toDisplay(m, page, info, l, t)
+      const [bx, by] = toDisplay(m, page, info, r, b)
+      const bx0 = Math.min(ax, bx), bx1 = Math.max(ax, bx), by0 = Math.min(ay, by), by1 = Math.max(ay, by)
+      if (x < bx0 - tolerance || x > bx1 + tolerance || y < by0 - tolerance || y > by1 + tolerance) continue
+      const shape = readPath(m, page, info, obj, i, buf)
+      if (!shape) continue
+      // Fond de page ou grand aplat blanc sans contour : pas une forme qu'on veut prendre
+      const area = (bx1 - bx0) * (by1 - by0)
+      if (!shape.stroke && (area > info.width * info.height * 0.4 || /^#f[a-f0-9]f[a-f0-9]f[a-f0-9]$/i.test(shape.fill ?? ''))) continue
+      if (hitPath(shape, x, y, tolerance)) return shape
+    }
+    return null
+  } finally {
+    m.pdfium.wasmExports.free(buf)
+    m.FPDF_ClosePage(page)
+  }
+}
+
+const hex2 = (v: number): string => v.toString(16).padStart(2, '0')
+type PathPoint = { x: number; y: number }
+
+function readPath(m: WrappedPdfiumModule, page: number, info: PdfPageInfo, obj: number, index: number, buf: number): (PdfShape & { polys: PathPoint[][]; closed: boolean[] }) | null {
+  // Matrice de l'objet : points locaux → page
+  if (!m.FPDFPageObj_GetMatrix(obj, buf)) return null
+  const [a, b, c, d, e, f] = f32(m, buf, 6)
+  const n = m.FPDFPath_CountSegments(obj)
+  if (n <= 0 || n > 20000) return null
+  const disp = (px: number, py: number): PathPoint => {
+    const [X, Y] = toDisplay(m, page, info, a * px + c * py + e, b * px + d * py + f)
+    return { x: X, y: Y }
+  }
+  let dPath = ''
+  const polys: PathPoint[][] = []
+  const closed: boolean[] = []
+  let cur: PathPoint[] = []
+  let last: PathPoint = { x: 0, y: 0 }
+  const bez: PathPoint[] = []
+  const r2 = (v: number): number => Math.round(v * 100) / 100
+  for (let k = 0; k < n; k++) {
+    const seg = m.FPDFPath_GetPathSegment(obj, k)
+    if (!seg || !m.FPDFPathSegment_GetPoint(seg, buf + 32, buf + 36)) continue
+    const [px, py] = f32(m, buf + 32, 2)
+    const pt = disp(px, py)
+    const type = m.FPDFPathSegment_GetType(seg)
+    if (type === 2) {
+      if (cur.length) { polys.push(cur); closed.push(false) }
+      cur = [pt]
+      dPath += `M ${r2(pt.x)} ${r2(pt.y)} `
+    } else if (type === 1) {
+      bez.push(pt)
+      if (bez.length === 3) {
+        const [p1, p2, p3] = bez.splice(0, 3)
+        dPath += `C ${r2(p1.x)} ${r2(p1.y)} ${r2(p2.x)} ${r2(p2.y)} ${r2(p3.x)} ${r2(p3.y)} `
+        // Courbe aplatie pour le test de clic
+        for (let s = 1; s <= 10; s++) {
+          const u = s / 10, v = 1 - u
+          cur.push({ x: v * v * v * last.x + 3 * v * v * u * p1.x + 3 * v * u * u * p2.x + u * u * u * p3.x, y: v * v * v * last.y + 3 * v * v * u * p1.y + 3 * v * u * u * p2.y + u * u * u * p3.y })
+        }
+        last = p3
+      }
+      if (m.FPDFPathSegment_GetClose(seg) && !bez.length) { dPath += 'Z '; closed[polys.length] = true }
+      continue
+    } else {
+      cur.push(pt)
+      dPath += `L ${r2(pt.x)} ${r2(pt.y)} `
+    }
+    last = pt
+    if (m.FPDFPathSegment_GetClose(seg)) {
+      dPath += 'Z '
+      if (cur.length) { polys.push([...cur, cur[0]]); closed.push(true) }
+      cur = []
+    }
+  }
+  if (cur.length) { polys.push(cur); closed.push(false) }
+  if (!dPath) return null
+  // Remplissage, contour, couleurs, épaisseur, tirets, bouts et angles
+  m.FPDFPath_GetDrawMode(obj, buf, buf + 4)
+  const [fillMode, strokeOn] = new Int32Array(heap(m).buffer, buf, 2)
+  const color = (get: (r: number, g: number, bb: number, aa: number) => boolean): [string, number] | null => {
+    if (!get(buf + 40, buf + 44, buf + 48, buf + 52)) return null
+    const [R, G, B, A] = new Uint32Array(heap(m).buffer, buf + 40, 4)
+    return [`#${hex2(R)}${hex2(G)}${hex2(B)}`, A / 255]
+  }
+  const fill = fillMode ? color((r, g, bb, aa) => m.FPDFPageObj_GetFillColor(obj, r, g, bb, aa)) : null
+  const stroke = strokeOn ? color((r, g, bb, aa) => m.FPDFPageObj_GetStrokeColor(obj, r, g, bb, aa)) : null
+  const scale = Math.sqrt(Math.abs(a * d - b * c)) || 1
+  const width = m.FPDFPageObj_GetStrokeWidth(obj, buf + 56) ? new Float32Array(heap(m).buffer, buf + 56, 1)[0] * scale : 1
+  let dash: number[] | null = null
+  const dc = m.FPDFPageObj_GetDashCount(obj)
+  if (dc > 0 && dc < 32) {
+    const arr = m.pdfium.wasmExports.malloc(dc * 4)
+    if (m.FPDFPageObj_GetDashArray(obj, arr, dc)) dash = Array.from(f32(m, arr, dc), (v) => v * scale)
+    m.pdfium.wasmExports.free(arr)
+  }
+  const caps = ['butt', 'round', 'square'] as const
+  const joins = ['miter', 'round', 'bevel'] as const
+  return {
+    index,
+    d: dPath.trim(),
+    stroke: stroke?.[0] ?? null,
+    fill: fill?.[0] ?? null,
+    fillRule: fillMode === 1 ? 'evenodd' : 'nonzero',
+    width: Math.max(0.1, width),
+    dash,
+    cap: caps[m.FPDFPageObj_GetLineCap(obj)] ?? 'butt',
+    join: joins[m.FPDFPageObj_GetLineJoin(obj)] ?? 'miter',
+    opacity: Math.min(stroke?.[1] ?? 1, fill?.[1] ?? 1),
+    polys,
+    closed
+  }
+}
+
+/** Le point touche-t-il la forme ? (près du trait, ou dedans si elle est remplie) */
+function hitPath(s: { polys: PathPoint[][]; closed: boolean[]; stroke: string | null; fill: string | null; width: number }, x: number, y: number, tol: number): boolean {
+  const near = s.width / 2 + tol
+  for (const poly of s.polys) {
+    for (let k = 1; k < poly.length; k++) {
+      const p = poly[k - 1], q = poly[k]
+      const dx = q.x - p.x, dy = q.y - p.y
+      const L = dx * dx + dy * dy
+      const u = L ? Math.max(0, Math.min(1, ((x - p.x) * dx + (y - p.y) * dy) / L)) : 0
+      if (Math.hypot(x - (p.x + u * dx), y - (p.y + u * dy)) <= near) return true
+    }
+  }
+  if (!s.fill) return false
+  // Dedans (pair-impair) : formes remplies
+  let inside = false
+  for (const poly of s.polys) {
+    for (let k = 0, j = poly.length - 1; k < poly.length; j = k++) {
+      const a = poly[k], b = poly[j]
+      if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y || 1e-9) + a.x) inside = !inside
+    }
+  }
+  return inside
 }
 
 /** Repère PDF de la page → repère affiché (points, y vers le bas). */
@@ -566,7 +737,7 @@ async function glyphs(id: string, index: number, charIndex: number, codepoints: 
 }
 
 /** Copie du PDF où le texte modifié a été réellement supprimé (et non masqué). */
-async function redacted(id: string, pages: { page: number; masks: PdfMask[]; shifts?: PdfShift[] }[]): Promise<Uint8Array> {
+async function redacted(id: string, pages: { page: number; masks: PdfMask[]; shifts?: PdfShift[]; hidden?: number[] }[]): Promise<Uint8Array> {
   const m = await pdfium()
   const src = getDoc(id)
   const buffer = m.pdfium.wasmExports.malloc(src.bytes.length)
@@ -579,10 +750,11 @@ async function redacted(id: string, pages: { page: number; masks: PdfMask[]; shi
   }, 'iiii')
   const fw = m.pdfium.wasmExports.malloc(8)
   try {
-    for (const { page: index, masks, shifts } of pages) {
+    for (const { page: index, masks, shifts, hidden } of pages) {
       const page = m.FPDF_LoadPage(handle, index)
+      const gone = removeObjects(m, page, hidden)
       const removal = masks.length ? removeTextIn(m, page, src.pages[index], masks) : { removed: 0, leftovers: [] }
-      const removed = removal.removed + (shifts?.length ? 1 : 0)
+      const removed = removal.removed + gone + (shifts?.length ? 1 : 0)
       const leftovers = shifts?.length ? shiftContent(m, page, src.pages[index], shifts, removal.leftovers) : removal.leftovers
       // Texte d'origine qu'on n'a pas pu retirer seul : recouvert d'un rectangle blanc.
       for (const [x0, y0, x1, y1] of leftovers) {
@@ -748,11 +920,13 @@ self.onmessage = async (e: MessageEvent<{ id: number; req: PdfRequest }>) => {
         await close(req.doc)
         return reply({ ok: true })
       case 'render': {
-        const bitmap = await render(req.doc, req.page, req.width, req.height, req.masks, req.shifts)
+        const bitmap = await render(req.doc, req.page, req.width, req.height, req.masks, req.shifts, req.hidden)
         return reply({ ok: true, bitmap }, [bitmap])
       }
       case 'text':
         return reply({ ok: true, words: await text(req.doc, req.page) })
+      case 'shapeat':
+        return reply({ ok: true, shape: await shapeAt(req.doc, req.page, req.x, req.y, req.tolerance, req.hidden) })
       case 'outline':
         return reply({ ok: true, outline: await outline(req.doc) })
       case 'fontinfo':

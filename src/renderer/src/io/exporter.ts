@@ -215,11 +215,11 @@ export class Exporter {
     out.setCreator('Feuillet')
 
     // Texte d'origine modifié : on part d'une copie du PDF où ce texte est réellement supprimé.
-    const masked = new Map<string, { page: number; masks: [number, number, number, number][]; shifts?: import('../pdf/protocol').PdfShift[] }[]>()
+    const masked = new Map<string, { page: number; masks: [number, number, number, number][]; shifts?: import('../pdf/protocol').PdfShift[]; hidden?: number[] }[]>()
     for (const page of pages) {
       const shifts = page.shifts?.filter((s) => s.dy) ?? []
-      if (page.bg.kind !== 'pdf' || (!page.masks?.length && !shifts.length)) continue
-      masked.set(page.bg.assetId, [...(masked.get(page.bg.assetId) ?? []), { page: page.bg.index, masks: page.masks ?? [], shifts }])
+      if (page.bg.kind !== 'pdf' || (!page.masks?.length && !shifts.length && !page.hidden?.length)) continue
+      masked.set(page.bg.assetId, [...(masked.get(page.bg.assetId) ?? []), { page: page.bg.index, masks: page.masks ?? [], shifts, hidden: page.hidden }])
     }
     const sources = new Map<string, Uint8Array>()
     for (const [assetId, list] of masked) {

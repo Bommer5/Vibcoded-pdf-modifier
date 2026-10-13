@@ -33,7 +33,7 @@ class PageRenderer {
     const bg = page.bg
     if (bg.kind === 'pdf') {
       const shifts = page.shifts?.filter((s) => s.dy) ?? []
-      return `${bg.assetId}#${bg.index}${page.masks?.length ? '#' + JSON.stringify(page.masks) : ''}${shifts.length ? '#' + JSON.stringify(shifts) : ''}`
+      return `${bg.assetId}#${bg.index}${page.masks?.length ? '#' + JSON.stringify(page.masks) : ''}${shifts.length ? '#' + JSON.stringify(shifts) : ''}${page.hidden?.length ? '#h' + page.hidden.join(',') : ''}`
     }
     if (bg.kind === 'image') return bg.assetId
     return null
@@ -126,7 +126,7 @@ class PageRenderer {
       const asset = assets.get(bg.assetId)
       if (!asset) return null
       await pdfEngine.open(bg.assetId, asset.bytes)
-      return pdfEngine.render(bg.assetId, bg.index, w, h, page.masks, page.shifts?.filter((s) => s.dy))
+      return pdfEngine.render(bg.assetId, bg.index, w, h, page.masks, page.shifts?.filter((s) => s.dy), page.hidden)
     }
     if (bg.kind === 'image') {
       const asset = assets.get(bg.assetId)

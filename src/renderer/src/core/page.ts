@@ -23,6 +23,8 @@ export class Page extends Rect {
   declare masks: [number, number, number, number][]
   /** Décalages du contenu d'origine sous les paragraphes modifiés (voir PdfShift). */
   declare shifts: PdfShift[]
+  /** Traits et formes du PDF repris dans le document (rangs des objets retirés de la page). */
+  declare hidden?: number[]
   /** Texte reconnu par OCR (page scannée, texte en image). */
   declare ocr?: OcrData
   /** Zones recouvertes de la couleur du fond (texte en image remplacé) : [x0, y0, x1, y1, couleur]. */
@@ -63,4 +65,4 @@ export class Page extends Rect {
 }
 
 classRegistry.setClass(Page)
-FabricObject.customProperties.push('bg', 'shifts', 'ocr', 'covers', 'flowFrom', 'flowOverflow')
+FabricObject.customProperties.push('bg', 'shifts', 'ocr', 'covers', 'flowFrom', 'flowOverflow', 'hidden', 'pdfShape')
