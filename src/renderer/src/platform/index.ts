@@ -17,6 +17,13 @@ export interface FileFilter {
   extensions: string[]
 }
 
+export interface RecoveryItem {
+  id: string
+  name: string
+  time: number
+  size: number
+}
+
 export interface Platform {
   readonly kind: 'desktop' | 'mobile' | 'web'
   openFiles(filters: FileFilter[]): Promise<OpenedFile[]>
@@ -34,9 +41,13 @@ export interface Platform {
   writeFile(path: string, data: Uint8Array): Promise<void>
   recentFiles(): Promise<{ path: string; name: string }[]>
   openRecent(path: string): Promise<OpenedFile[]>
-  autosaveWrite(data: Uint8Array): Promise<void>
-  autosaveRead(): Promise<Uint8Array | null>
-  autosaveClear(): Promise<void>
+  /** Sauvegardes de secours : une par session, gardées 14 jours (10 au plus). */
+  recoveryWrite(id: string, name: string, data: Uint8Array): Promise<void>
+  recoveryList(): Promise<RecoveryItem[]>
+  recoveryRead(id: string): Promise<Uint8Array | null>
+  recoveryDelete(id: string): Promise<void>
+  /** PC : la fenêtre se ferme → dernière sauvegarde de secours avant la question. */
+  onAutosaveNow(cb: () => Promise<void>): void
   setDirty(dirty: boolean): void
   onSaveBeforeClose(cb: () => void): void
   closeNow(): void
@@ -59,9 +70,11 @@ const desktop = (): Platform => {
     writeFile: (path, data) => api.writeFile(path, data),
     recentFiles: () => api.recentFiles(),
     openRecent: (path) => api.openRecent(path),
-    autosaveWrite: (data) => api.autosaveWrite(data),
-    autosaveRead: () => api.autosaveRead(),
-    autosaveClear: () => api.autosaveClear(),
+    recoveryWrite: (id, name, data) => api.recoveryWrite(id, name, data),
+    recoveryList: () => api.recoveryList(),
+    recoveryRead: (id) => api.recoveryRead(id),
+    recoveryDelete: (id) => api.recoveryDelete(id),
+    onAutosaveNow: (cb) => api.onAutosaveNow(cb),
     setDirty: (d) => api.setDirty(d),
     onSaveBeforeClose: (cb) => api.onSaveBeforeClose(cb),
     closeNow: () => api.closeNow(),
@@ -125,10 +138,26 @@ const web = (): Platform => ({
   },
   recentFiles: async () => [],
   openRecent: async () => [],
-  // Navigateur / mobile : sauvegarde automatique dans IndexedDB (survit à la fermeture de l'application).
-  autosaveWrite: (data) => idb('put', data).then(() => undefined),
-  autosaveRead: () => idb('get').then((v) => (v as Uint8Array | undefined) ?? null),
-  autosaveClear: () => idb('delete').then(() => undefined),
+  // Navigateur / mobile : sauvegardes de secours dans IndexedDB (survivent à la fermeture).
+  recoveryWrite: (id, name, data) => idb('put', id, { id, name, time: Date.now(), size: data.length, data }).then(() => undefined),
+  recoveryList: async () => {
+    const all = ((await idb('all')) as (RecoveryItem & { data: Uint8Array })[]) ?? []
+    // Ancienne sauvegarde unique : reprise dans l'historique
+    const legacy = (await idb('get', 'autosave')) as Uint8Array | undefined
+    if (legacy instanceof Uint8Array) {
+      const id = `ancienne-${Date.now()}`
+      await idb('put', id, { id, name: 'Document', time: Date.now(), size: legacy.length, data: legacy })
+      await idb('delete', 'autosave')
+      all.push({ id, name: 'Document', time: Date.now(), size: legacy.length, data: legacy })
+    }
+    const items = all.filter((v) => v && typeof v === 'object' && 'id' in v).sort((a, b) => b.time - a.time)
+    // Ménage : 10 au plus, 14 jours au plus
+    for (const [i, v] of items.entries()) if (i >= 10 || Date.now() - v.time > 14 * 86_400_000) await idb('delete', v.id)
+    return items.filter((v, i) => i < 10 && Date.now() - v.time <= 14 * 86_400_000).map(({ id, name, time, size }) => ({ id, name, time, size }))
+  },
+  recoveryRead: async (id) => (((await idb('get', id)) as { data?: Uint8Array } | undefined)?.data ?? null),
+  recoveryDelete: (id) => idb('delete', id).then(() => undefined),
+  onAutosaveNow: () => {},
   setDirty: (d) => {
     window.onbeforeunload = d ? (e) => e.preventDefault() : null
   },
@@ -155,18 +184,19 @@ const web = (): Platform => ({
   }
 })
 
-/** Mini-accès IndexedDB (une seule clé : la sauvegarde automatique). */
-function idb(op: 'get' | 'put' | 'delete', value?: Uint8Array): Promise<unknown> {
+/** Mini-accès IndexedDB (sauvegardes de secours, une entrée par session). */
+function idb(op: 'get' | 'put' | 'delete' | 'all', key?: string, value?: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const open = indexedDB.open('feuillet', 1)
     open.onupgradeneeded = () => open.result.createObjectStore('kv')
     open.onerror = () => reject(open.error)
     open.onsuccess = () => {
-      const tx = open.result.transaction('kv', op === 'get' ? 'readonly' : 'readwrite')
+      const tx = open.result.transaction('kv', op === 'get' || op === 'all' ? 'readonly' : 'readwrite')
       const store = tx.objectStore('kv')
-      const req = op === 'get' ? store.get('autosave') : op === 'put' ? store.put(value, 'autosave') : store.delete('autosave')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
+      const req = op === 'all' ? store.getAll() : op === 'get' ? store.get(key!) : op === 'put' ? store.put(value, key!) : store.delete(key!)
+      // Écriture terminée seulement quand la transaction est validée sur le disque
+      tx.oncomplete = () => resolve(req.result)
+      tx.onerror = () => reject(tx.error ?? req.error)
     }
   })
 }

@@ -18,6 +18,9 @@ import { chartObject, isChart } from './charts/chart-object'
 import { TableEditor } from './objects/table-editor'
 import { penActionOf, ToolManager, type Tool } from './tools/manager'
 import { HandwritingConverter } from './hwr/convert'
+import { segment } from './hwr/segment'
+import { inkImage } from './hwr/ink-image'
+import { handwriting } from './hwr/engine'
 import { buildInk } from './tools/ink'
 import { MenuBar, type Menu } from './ui/menubar'
 import { Welcome } from './ui/welcome'
@@ -262,6 +265,7 @@ const actions: Record<string, () => void | Promise<void>> = {
   'insert-image': async () => importer.insert(await platform.openFiles(OPEN_FILTERS.filter((f) => f.name === 'Images')), null),
   save: async () => void (await session.save()),
   'save-as': async () => void (await session.saveAs()),
+  recover: () => void session.showRecovery(),
   print: async () => {
     notify('Préparation de l’impression…')
     const total = doc.pages.length
@@ -449,6 +453,7 @@ const menus: Menu[] = [
       { label: 'Exporter…', action: 'export', shortcut: 'export', hint: 'PDF, PNG, JPEG, SVG, Word, OpenDocument…' },
       '-',
       { label: 'Imprimer…', action: 'print', shortcut: 'print' },
+      { label: 'Récupérer un travail non enregistré…', action: 'recover', hint: 'Copies de secours automatiques (14 jours)' },
       '-',
       { label: 'Préférences…', action: 'preferences', shortcut: 'preferences', hint: 'Raccourcis (touches de zoom…), thème, papier, stylet' }
     ]
@@ -628,4 +633,4 @@ const make = {
   /** Trait de stylo à partir de points (coordonnées document) : tests de l'écriture → texte. */
   ink: (points: [number, number][], size = 2, color = '#1b1b1f') => buildInk({ tool: 'pen', points: points.map(([x, y]) => [x, y, 0.5]), size, color, style: 'solid', pressure: false })
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, openPreferences: () => openPreferences(shortcuts) } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, hwrTools: { segment, inkImage, handwriting }, openPreferences: () => openPreferences(shortcuts) } })

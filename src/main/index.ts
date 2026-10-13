@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { convertWithOffice, findSoffice } from './office'
@@ -8,6 +8,8 @@ import { convertWithOffice, findSoffice } from './office'
 let mainWindow: BrowserWindow | null = null
 /** Document non enregistré : la fermeture demande confirmation. */
 let dirty = false
+/** Dernière sauvegarde de secours faite juste avant la question de fermeture. */
+let finalSaved = false
 /**
  * Chemins que l'interface a le droit d'écrire sans boîte de dialogue : uniquement
  * ceux que l'utilisateur a lui-même ouverts ou choisis (Ctrl+S sur le fichier ouvert).
@@ -56,6 +58,22 @@ function createWindow(): void {
   // Document non enregistré : proposer d'enregistrer avant de fermer.
   win.on('close', (e) => {
     if (!dirty) return
+    // D'abord une dernière sauvegarde de secours (quoi qu'on réponde ensuite, rien n'est perdu)
+    if (!finalSaved) {
+      e.preventDefault()
+      const done = (): void => {
+        finalSaved = true
+        win.close()
+      }
+      ipcMain.once('app:autosaved', done)
+      win.webContents.send('app:autosave-now')
+      setTimeout(() => {
+        ipcMain.removeListener('app:autosaved', done)
+        if (!finalSaved) done()
+      }, 4000)
+      return
+    }
+    finalSaved = false
     const choice = dialog.showMessageBoxSync(win, {
       type: 'question',
       buttons: ['Enregistrer', 'Ne pas enregistrer', 'Annuler'],
@@ -66,8 +84,8 @@ function createWindow(): void {
       detail: 'Vos modifications seront perdues si vous ne les enregistrez pas.'
     })
     if (choice === 1) {
+      // Ne pas enregistrer : la sauvegarde de secours reste (Fichier > Récupérer, 14 jours)
       dirty = false
-      void rm(AUTOSAVE(), { force: true })
       return
     }
     e.preventDefault()
@@ -163,12 +181,58 @@ ipcMain.handle('recent:open', async (_e, path: string) => {
   return readPaths([path])
 })
 
-ipcMain.handle('autosave:write', async (_e, data: Uint8Array) => {
-  await mkdir(dirname(AUTOSAVE()), { recursive: true })
-  await writeFile(AUTOSAVE(), data)
+// Sauvegardes de secours : une par session de travail (jamais écrasée par une autre), gardées
+// 14 jours (10 au plus). « Ne pas enregistrer » ne les supprime pas : Fichier > Récupérer.
+const RECOVERY = (): string => userFile('recovery')
+const slot = (id: string): string => join(RECOVERY(), `${id.replace(/[^\w-]/g, '')}.feuillet`)
+interface RecoveryMeta { id: string; name: string; time: number; size: number }
+async function recoveryList(): Promise<RecoveryMeta[]> {
+  const dir = RECOVERY()
+  if (!existsSync(dir)) return []
+  const out: RecoveryMeta[] = []
+  for (const f of await readdir(dir)) {
+    if (!f.endsWith('.json')) continue
+    try {
+      const meta = JSON.parse(await readFile(join(dir, f), 'utf8')) as RecoveryMeta
+      if (existsSync(slot(meta.id))) out.push(meta)
+    } catch {
+      // méta illisible : ignorée
+    }
+  }
+  return out.sort((a, b) => b.time - a.time)
+}
+async function recoveryPrune(): Promise<void> {
+  const list = await recoveryList()
+  const old = list.filter((m, i) => i >= 10 || Date.now() - m.time > 14 * 86_400_000)
+  for (const m of old) {
+    await rm(slot(m.id), { force: true })
+    await rm(join(RECOVERY(), `${m.id}.json`), { force: true })
+  }
+}
+ipcMain.handle('recovery:write', async (_e, id: string, name: string, data: Uint8Array) => {
+  await mkdir(RECOVERY(), { recursive: true })
+  // Écriture sûre : fichier temporaire puis renommage (jamais de sauvegarde à moitié écrite)
+  const tmp = slot(id) + '.tmp'
+  await writeFile(tmp, data)
+  await rename(tmp, slot(id))
+  await writeFile(join(RECOVERY(), `${id}.json`), JSON.stringify({ id, name, time: Date.now(), size: data.length }))
 })
-ipcMain.handle('autosave:read', async () => (existsSync(AUTOSAVE()) ? new Uint8Array(await readFile(AUTOSAVE())) : null))
-ipcMain.handle('autosave:clear', () => rm(AUTOSAVE(), { force: true }))
+ipcMain.handle('recovery:list', async () => {
+  // Ancienne sauvegarde unique (versions précédentes) : reprise dans l'historique
+  if (existsSync(AUTOSAVE())) {
+    const id = `ancienne-${Date.now()}`
+    await mkdir(RECOVERY(), { recursive: true })
+    await rename(AUTOSAVE(), slot(id))
+    await writeFile(join(RECOVERY(), `${id}.json`), JSON.stringify({ id, name: 'Document', time: Date.now(), size: 0 }))
+  }
+  await recoveryPrune()
+  return recoveryList()
+})
+ipcMain.handle('recovery:read', async (_e, id: string) => (existsSync(slot(id)) ? new Uint8Array(await readFile(slot(id))) : null))
+ipcMain.handle('recovery:delete', async (_e, id: string) => {
+  await rm(slot(id), { force: true })
+  await rm(join(RECOVERY(), `${id}.json`), { force: true })
+})
 
 ipcMain.on('doc:dirty', (_e, value: boolean) => (dirty = value))
 ipcMain.on('app:close-now', () => {

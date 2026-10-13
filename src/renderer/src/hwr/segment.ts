@@ -52,14 +52,20 @@ const median = (v: number[]): number => {
   return s[s.length >> 1]
 }
 
-/** Hauteur d'écriture de référence : médiane des traits « lettres » (ni points, ni dessins). */
+/**
+ * Hauteur d'écriture de référence : 70e centile des hauteurs de traits (hors points et
+ * accents) — une lettre haute ou un mot entier, pas un petit morceau de lettre.
+ */
 export function textHeight(strokes: Stroke[]): number {
   const hs = strokes.map((s) => {
     const b = boxOf(s)
-    return Math.max(b.y1 - b.y0, Math.min(b.x1 - b.x0, (b.y1 - b.y0) * 3))
-  })
-  const big = hs.filter((h) => h > median(hs) * 0.35)
-  return median(big.length ? big : hs) || 1
+    return b.y1 - b.y0
+  }).sort((a, b) => a - b)
+  if (!hs.length) return 1
+  const max = hs[hs.length - 1]
+  const real = hs.filter((h) => h > max * 0.2)
+  const v = real.length ? real : hs
+  return v[Math.floor(v.length * 0.7)] || 1
 }
 
 export function segment(input: InkStroke[], refHeight?: number): Segmentation {
@@ -101,23 +107,27 @@ export function segment(input: InkStroke[], refHeight?: number): Segmentation {
   const lines: Line[] = []
   const cx = (s: Box): number => (s.x0 + s.x1) / 2
   const cy = (s: Box): number => (s.y0 + s.y1) / 2
-  /** Hauteur attendue de la ligne à l'abscisse x (droite des moindres carrés des derniers traits). */
+  /** Bande de hauteur de la ligne là où elle arrive (derniers traits) : suit pente et ondulation. */
+  const band = (l: Line, x: number): [number, number] => {
+    const near = l.members.filter((m) => !small(m) && m.x1 > x - H * 4)
+    const ms = near.length ? near : l.members.filter((m) => !small(m)).slice(-4)
+    if (!ms.length) return [l.members[0].y0, l.members[0].y1]
+    return [median(ms.map((m) => m.y0)), median(ms.map((m) => m.y1))]
+  }
   const expected = (l: Line, x: number): number => {
-    const ms = l.members.filter((m) => !small(m)).slice(-6)
-    if (ms.length < 3) return median(ms.map(cy))
-    const fit = lineFit(ms.map((m) => [cx(m), cy(m)]))
-    // Pente bornée : une majuscule ou un jambage isolé ne fait pas basculer la ligne
-    const slope = Math.max(-0.45, Math.min(0.45, fit.slope))
-    return fit.y + slope * (x - fit.x)
+    const [a, b] = band(l, x)
+    return (a + b) / 2
   }
   for (const s of text.filter((t) => !small(t)).sort((a, b) => a.x0 - b.x0)) {
     let best: Line | null = null
-    let bestD = Infinity
+    let bestScore = 0
     for (const l of lines) {
       if (s.x0 - l.x1 > H * 3.2) continue // trop loin : nouveau morceau
-      const d = Math.abs(cy(s) - expected(l, cx(s)))
-      if (d < H * 0.6 && d < bestD) {
-        bestD = d
+      const [b0, b1] = band(l, s.x0)
+      const overlap = Math.min(b1, s.y1) - Math.max(b0, s.y0)
+      const ratio = overlap / Math.max(1e-6, Math.min(b1 - b0, s.y1 - s.y0))
+      if (ratio > 0.3 && ratio > bestScore) {
+        bestScore = ratio
         best = l
       }
     }
@@ -125,6 +135,35 @@ export function segment(input: InkStroke[], refHeight?: number): Segmentation {
       best.members.push(s)
       best.x1 = Math.max(best.x1, s.x1)
     } else lines.push({ members: [s], x1: s.x1 })
+  }
+  // Morceaux d'une même ligne séparés au départ (lettre en deux traits, début de ligne) :
+  // côte à côte et à la même hauteur → une seule ligne. Deux lignes l'une sous l'autre ne
+  // se chevauchent pas en hauteur et restent distinctes.
+  const ext = (l: Line): Box => l.members.reduce((b, m) => ({ x0: Math.min(b.x0, m.x0), y0: Math.min(b.y0, m.y0), x1: Math.max(b.x1, m.x1), y1: Math.max(b.y1, m.y1) }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity })
+  for (let merged = true; merged; ) {
+    merged = false
+    outer: for (let i = 0; i < lines.length; i++) {
+      for (let j = i + 1; j < lines.length; j++) {
+        const a = ext(lines[i]), b = ext(lines[j])
+        const gap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1)
+        const oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0)
+        const union = Math.max(a.y1, b.y1) - Math.min(a.y0, b.y0)
+        // Même hauteur (chevauchement), ou l'un juste au-dessus de l'autre au même endroit
+        // (lettre coupée en deux) sans dépasser la hauteur d'une seule ligne d'écriture.
+        const sameBand = oy > Math.min(a.y1 - a.y0, b.y1 - b.y0) * 0.5
+        const ha = a.y1 - a.y0, hb = b.y1 - b.y0
+        // Morceau nettement plus petit collé dessous / dessus (queue de « q », barre de « t »)
+        const fragment = Math.min(ha, hb) < Math.max(ha, hb) * 0.6 && union < H * 2.8
+        const stacked = gap < H * 0.5 && oy > -H * 0.2 && (union < H * 2.1 || fragment)
+        if (gap < H * 3.2 && (sameBand || stacked)) {
+          lines[i].members.push(...lines[j].members)
+          lines[i].x1 = Math.max(lines[i].x1, lines[j].x1)
+          lines.splice(j, 1)
+          merged = true
+          break outer
+        }
+      }
+    }
   }
   // Petits traits (points, accents, apostrophes, virgules) : la ligne la plus proche
   for (const s of text.filter(small)) {
@@ -148,32 +187,53 @@ export function segment(input: InkStroke[], refHeight?: number): Segmentation {
   const out: Segmentation['lines'] = []
   for (const l of lines) {
     const box = l.members.reduce((b, s) => ({ x0: Math.min(b.x0, s.x0), y0: Math.min(b.y0, s.y0), x1: Math.max(b.x1, s.x1), y1: Math.max(b.y1, s.y1) }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity })
-    const big = l.members.filter((m) => !small(m))
-    const fit = big.length >= 2 ? lineFit(big.map((m) => [cx(m), cy(m)])) : { slope: 0 }
-    // Angle de la ligne (redressée avant la lecture) ; borné à ±25°
-    const angle = Math.atan(Math.max(-0.47, Math.min(0.47, fit.slope)))
-    out.push({ strokes: l.members.map((s) => s.i).sort((a, b) => a - b), box, angle })
+    const ids = l.members.map((s) => s.i).sort((a, b) => a - b)
+    // Angle de la ligne : celui où l'écriture forme la bande la plus fine (profil de
+    // projection) ; seulement pour une ligne assez longue (un mot court reste tel quel).
+    const angle = box.x1 - box.x0 > H * 4 ? skewOf(ids.map((i) => input[i].points)) : 0
+    out.push({ strokes: ids, box, angle })
   }
   out.sort((a, b) => a.box.y0 - b.box.y0 || a.box.x0 - b.box.x0)
   return { lines: out, drawings: [...drawings] }
 }
 
-/** Droite des moindres carrés (pente et point moyen). */
-function lineFit(pts: number[][]): { slope: number; x: number; y: number } {
-  const n = pts.length
-  const mx = pts.reduce((a, p) => a + p[0], 0) / n
-  const my = pts.reduce((a, p) => a + p[1], 0) / n
-  let sxx = 0, sxy = 0
-  for (const [x, y] of pts) {
-    sxx += (x - mx) * (x - mx)
-    sxy += (x - mx) * (y - my)
-  }
-  return { slope: sxx > 1e-6 ? sxy / sxx : 0, x: mx, y: my }
-}
 
 /** Fait tourner des traits autour d'un point (redressement d'une ligne penchée). */
 export function rotate(strokes: Stroke[], angle: number, cx: number, cy: number): Stroke[] {
   if (Math.abs(angle) < 1e-3) return strokes
   const c = Math.cos(angle), s = Math.sin(angle)
   return strokes.map((st) => st.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c] as [number, number]))
+}
+
+/**
+ * Inclinaison d'une ligne d'écriture : on essaie les angles de −25° à +25° et on garde celui où
+ * la moitié centrale des points tient dans la bande la plus fine (les jambages et majuscules,
+ * en dehors de cette moitié, ne faussent pas la mesure). 0 si la ligne est droite à 2° près.
+ */
+export function skewOf(strokes: Stroke[]): number {
+  const pts = strokes.flat()
+  if (pts.length < 8) return 0
+  const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length
+  const cy = pts.reduce((a, p) => a + p[1], 0) / pts.length
+  const band = (a: number): number => {
+    const c = Math.cos(a), s = Math.sin(a)
+    const ys = pts.map(([x, y]) => (x - cx) * s * -1 + (y - cy) * c).sort((p, q) => p - q)
+    return ys[Math.floor(ys.length * 0.75)] - ys[Math.floor(ys.length * 0.25)]
+  }
+  let best = 0
+  let bestBand = band(0)
+  for (let deg = -25; deg <= 25; deg += 1) {
+    const a = (deg * Math.PI) / 180
+    const b = band(a)
+    if (b < bestBand - 1e-9) {
+      bestBand = b
+      best = a
+    }
+  }
+  // Affinage au demi-degré
+  for (const d of [-0.5, 0.5]) {
+    const a = best + (d * Math.PI) / 180
+    if (band(a) < bestBand) best = a
+  }
+  return Math.abs(best) < (2 * Math.PI) / 180 ? 0 : best
 }

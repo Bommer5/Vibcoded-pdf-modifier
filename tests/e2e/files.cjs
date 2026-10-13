@@ -87,17 +87,27 @@ async function launch() {
   check('recent file listed in File menu', hasRecent > 0)
   await win.keyboard.press('Escape')
 
-  // Sauvegarde automatique puis « plantage » (fermeture forcée) → proposition de restauration.
+  // Sauvegarde automatique (sans rien demander, quelques secondes après le trait) puis
+  // « plantage » (fermeture forcée) → bande de restauration au redémarrage.
   await win.keyboard.press('KeyP')
   await win.mouse.move(box.x + 400, box.y + 450); await win.mouse.down(); await win.mouse.move(box.x + 520, box.y + 480, { steps: 6 }); await win.mouse.up()
-  await win.evaluate(() => window.__feuillet.fileSession.autosave())
+  const t0 = Date.now()
+  while (Date.now() - t0 < 15000 && !(await win.evaluate((t) => window.feuillet.recoveryList().then((l) => l.some((r) => r.time >= t)), t0))) await win.waitForTimeout(250)
+  check('autosave written within a few seconds', Date.now() - t0 < 8000, `${Date.now() - t0} ms`)
   await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
   ;({ app, win } = await launch())
-  const restore = win.locator('.toast button:has-text("Restaurer")')
+  const restore = win.locator('.recovery-bar button:has-text("Restaurer")')
   await restore.waitFor({ timeout: 10000 })
+  check('recovery bar stays (not a fading toast)', await win.locator('.recovery-bar').isVisible())
   await restore.click()
   await win.waitForFunction(() => window.__feuillet.editor.doc.content.length === 3, null, { timeout: 10000 })
   check('crash recovery restores unsaved work', true)
+  // La sauvegarde reste listée dans Fichier > Récupérer…
+  await win.click('.menu-button >> text=Fichier')
+  await win.click('.menu-item >> text=Récupérer un travail non enregistré')
+  await win.locator('.recovery-dialog').waitFor()
+  check('recovery dialog lists the backup', (await win.locator('.recovery-row').count()) >= 1)
+  await win.keyboard.press('Escape')
   await win.evaluate(() => window.feuillet.setDirty(false)).catch(() => {})
   await app.close()
 

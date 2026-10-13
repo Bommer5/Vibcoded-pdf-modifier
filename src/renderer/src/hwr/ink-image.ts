@@ -48,6 +48,7 @@ export function inkImage(strokes: Stroke[]): InkImage | null {
   }
   const px = ctx.getImageData(0, 0, w, IMG_H).data
   const data = new Float32Array(w * IMG_H)
-  for (let i = 0; i < data.length; i++) data[i] = px[i * 4] / 255
+  // Couche alpha : sur fond transparent, le rouge des bords lissés vaudrait 255 (trait gonflé).
+  for (let i = 0; i < data.length; i++) data[i] = px[i * 4 + 3] / 255
   return { data, width: w }
 }

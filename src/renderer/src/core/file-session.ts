@@ -6,7 +6,9 @@ import { platform, type OpenedFile } from '../platform'
 
 type Kind = 'feuillet' | 'pdf' | 'other'
 
-const AUTOSAVE_EVERY_MS = 45_000
+/** Sauvegarde de secours : quelques secondes après la dernière modification, et au plus tard toutes les 30 s. */
+const AUTOSAVE_DELAY_MS = 3_000
+const AUTOSAVE_MAX_MS = 30_000
 
 /**
  * Le fichier en cours : enregistrement direct (Ctrl+S) dans le fichier ouvert,
@@ -21,6 +23,10 @@ export class FileSession {
   private version = 0
   private savedVersion = 0
   private autosavedVersion = 0
+  /** Cette session de travail : sa sauvegarde de secours n'écrase jamais celle d'une autre. */
+  private readonly recoveryId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 6)}`
+  private autosaveTimer = 0
+  private firstUnsaved = 0
   recent: { path: string; name: string }[] = []
 
   constructor(
@@ -28,9 +34,11 @@ export class FileSession {
     private importer: Importer,
     private exporter: Exporter
   ) {
-    window.setInterval(() => void this.autosave(), AUTOSAVE_EVERY_MS)
-    // Mobile : l'application peut être tuée en arrière-plan → on sauvegarde en quittant l'écran.
+    // Mobile : l'application peut être tuée en arrière-plan (ou balayée) → on sauvegarde dès
+    // qu'elle quitte l'écran ; PC : juste avant la question de fermeture.
     document.addEventListener('visibilitychange', () => document.hidden && void this.autosave())
+    window.addEventListener('pagehide', () => void this.autosave())
+    platform.onAutosaveNow(() => this.autosave())
     platform.onSaveBeforeClose(async () => {
       if (await this.save()) platform.closeNow()
     })
@@ -45,12 +53,22 @@ export class FileSession {
   changed(): void {
     this.version++
     this.updateTitle()
+    // Sauvegarde de secours peu après la dernière modification (et au plus tard après 30 s)
+    const now = Date.now()
+    if (!this.firstUnsaved) this.firstUnsaved = now
+    window.clearTimeout(this.autosaveTimer)
+    const wait = Math.min(AUTOSAVE_DELAY_MS, Math.max(0, this.firstUnsaved + AUTOSAVE_MAX_MS - now))
+    this.autosaveTimer = window.setTimeout(() => void this.autosave(), wait)
   }
 
   private markSaved(): void {
     this.savedVersion = this.version
     this.autosavedVersion = this.version
-    void platform.autosaveClear()
+    // Le travail est dans un fichier : la sauvegarde de secours de cette session n'a plus lieu d'être
+    // (après une éventuelle sauvegarde en cours, pour qu'elle ne la recrée pas).
+    window.clearTimeout(this.autosaveTimer)
+    this.firstUnsaved = 0
+    this.saving = this.saving.then(() => platform.recoveryDelete(this.recoveryId)).catch(() => {})
     this.updateTitle()
   }
 
@@ -142,33 +160,112 @@ export class FileSession {
     }
   }
 
-  async autosave(): Promise<void> {
-    if (!this.dirty || this.version === this.autosavedVersion) return
-    try {
-      const version = this.version
-      await platform.autosaveWrite(await saveProject(this.ed.canvas, { layers: this.ed.layers?.list, recovery: { name: this.name } }))
-      this.autosavedVersion = version
-    } catch (e) {
-      console.warn('Sauvegarde automatique impossible', e)
-    }
-  }
+  private saving: Promise<void> = Promise.resolve()
 
-  /** Au démarrage : propose de restaurer le travail non enregistré (plantage, coupure…). */
-  async offerRecovery(): Promise<void> {
-    const data = await platform.autosaveRead().catch(() => null)
-    if (!data) return
-    this.ed.notify('Du travail non enregistré a été retrouvé.', 'info', {
-      label: 'Restaurer',
-      run: async () => {
-        await this.importer.open([{ name: 'Récupération.feuillet', data }], { confirm: false })
-        this.set({ name: 'Document récupéré' })
-        this.version++
-        this.updateTitle()
+  async autosave(): Promise<void> {
+    window.clearTimeout(this.autosaveTimer)
+    this.saving = this.saving.then(async () => {
+      if (!this.dirty || this.version === this.autosavedVersion || this.ed.doc.isEmpty) return
+      try {
+        const version = this.version
+        const data = await saveProject(this.ed.canvas, { layers: this.ed.layers?.list, recovery: { name: this.name } })
+        await platform.recoveryWrite(this.recoveryId, this.name, data)
+        this.autosavedVersion = version
+        this.firstUnsaved = 0
+      } catch (e) {
+        console.warn('Sauvegarde automatique impossible', e)
       }
     })
+    return this.saving
+  }
+
+  /**
+   * Au démarrage : travail non enregistré d'une session précédente (fermeture, plantage,
+   * application balayée sur téléphone) → une bande qui reste jusqu'à ce qu'on choisisse.
+   */
+  async offerRecovery(): Promise<void> {
+    const list = (await platform.recoveryList().catch(() => [])).filter((r) => r.id !== this.recoveryId)
+    const last = list[0]
+    if (!last) return
+    const bar = document.createElement('div')
+    bar.className = 'recovery-bar'
+    bar.setAttribute('role', 'alert')
+    const when = new Date(last.time).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
+    bar.innerHTML = `<span><b>Travail non enregistré retrouvé</b> — « ${escapeHtml(last.name)} », ${when}${list.length > 1 ? ` (et ${list.length - 1} autre${list.length > 2 ? 's' : ''})` : ''}</span>`
+    const restore = document.createElement('button')
+    restore.className = 'primary'
+    restore.textContent = 'Restaurer'
+    restore.addEventListener('click', async () => {
+      bar.remove()
+      await this.restore(last.id, last.name)
+    })
+    const all = document.createElement('button')
+    all.textContent = 'Tout voir…'
+    all.addEventListener('click', () => {
+      bar.remove()
+      void this.showRecovery()
+    })
+    const close = document.createElement('button')
+    close.textContent = 'Plus tard'
+    close.title = 'La sauvegarde reste disponible : Fichier > Récupérer un travail non enregistré'
+    close.addEventListener('click', () => bar.remove())
+    bar.append(restore, all, close)
+    document.getElementById('workspace')?.append(bar)
+  }
+
+  /** Ouvre une sauvegarde de secours (le document actuel est gardé lui aussi en secours). */
+  async restore(id: string, name: string): Promise<void> {
+    const data = await platform.recoveryRead(id)
+    if (!data) return this.ed.notify('Cette sauvegarde n’existe plus.', 'error')
+    await this.autosave()
+    await this.importer.open([{ name: 'Récupération.feuillet', data }], { confirm: false })
+    this.set({ name: name.replace(/\.[^.]+$/, '') + ' (récupéré)' })
+    this.version++
+    this.updateTitle()
+    this.ed.notify('Travail récupéré. Pensez à l’enregistrer (Ctrl+S).', 'success')
+  }
+
+  /** Fichier > Récupérer un travail non enregistré : la liste des sauvegardes de secours. */
+  async showRecovery(): Promise<void> {
+    const list = (await platform.recoveryList().catch(() => [])).filter((r) => r.id !== this.recoveryId)
+    const dialog = document.createElement('dialog')
+    dialog.className = 'dialog recovery-dialog'
+    dialog.innerHTML = `<form method="dialog"><h2>Récupérer un travail non enregistré</h2>
+      <p class="muted small">Feuillet garde une copie de secours de chaque séance de travail non enregistrée, pendant 14 jours.</p>
+      <div class="recovery-list"></div><menu><button value="cancel">Fermer</button></menu></form>`
+    const box = dialog.querySelector('.recovery-list')!
+    if (!list.length) box.textContent = 'Aucune sauvegarde de secours.'
+    for (const r of list) {
+      const row = document.createElement('div')
+      row.className = 'recovery-row'
+      const when = new Date(r.time).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
+      row.innerHTML = `<span><b>${escapeHtml(r.name)}</b><small>${when}${r.size ? ` · ${Math.max(1, Math.round(r.size / 1024))} Ko` : ''}</small></span>`
+      const open = document.createElement('button')
+      open.type = 'button'
+      open.className = 'primary'
+      open.textContent = 'Ouvrir'
+      open.addEventListener('click', () => {
+        dialog.close()
+        void this.restore(r.id, r.name)
+      })
+      const del = document.createElement('button')
+      del.type = 'button'
+      del.textContent = 'Supprimer'
+      del.addEventListener('click', async () => {
+        await platform.recoveryDelete(r.id)
+        row.remove()
+      })
+      row.append(open, del)
+      box.append(row)
+    }
+    document.body.append(dialog)
+    dialog.addEventListener('close', () => dialog.remove())
+    dialog.showModal()
   }
 
   async refreshRecent(): Promise<void> {
     this.recent = await platform.recentFiles().catch(() => [])
   }
 }
+
+const escapeHtml = (t: string): string => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)

@@ -25,9 +25,13 @@ const api = {
   writeFile: (path: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('file:write', path, data),
   recentFiles: (): Promise<{ path: string; name: string }[]> => ipcRenderer.invoke('recent:list'),
   openRecent: (path: string): Promise<OpenedFile[]> => ipcRenderer.invoke('recent:open', path),
-  autosaveWrite: (data: Uint8Array): Promise<void> => ipcRenderer.invoke('autosave:write', data),
-  autosaveRead: (): Promise<Uint8Array | null> => ipcRenderer.invoke('autosave:read'),
-  autosaveClear: (): Promise<void> => ipcRenderer.invoke('autosave:clear'),
+  recoveryWrite: (id: string, name: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('recovery:write', id, name, data),
+  recoveryList: (): Promise<{ id: string; name: string; time: number; size: number }[]> => ipcRenderer.invoke('recovery:list'),
+  recoveryRead: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke('recovery:read', id),
+  recoveryDelete: (id: string): Promise<void> => ipcRenderer.invoke('recovery:delete', id),
+  onAutosaveNow: (cb: () => Promise<void>): void => {
+    ipcRenderer.on('app:autosave-now', () => void cb().finally(() => ipcRenderer.send('app:autosaved')))
+  },
   setDirty: (dirty: boolean): void => ipcRenderer.send('doc:dirty', dirty),
   onSaveBeforeClose: (cb: () => void): void => {
     ipcRenderer.on('app:save-before-close', () => cb())
