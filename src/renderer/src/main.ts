@@ -23,7 +23,7 @@ import { penActionOf, ToolManager, type Tool } from './tools/manager'
 import { HandwritingConverter } from './hwr/convert'
 import { segment } from './hwr/segment'
 import { inkImage } from './hwr/ink-image'
-import { handwriting } from './hwr/engine'
+import { handwriting, precise, restoreAccents } from './hwr/engine'
 import { buildInk } from './tools/ink'
 import { MenuBar, type Menu } from './ui/menubar'
 import { Welcome } from './ui/welcome'
@@ -200,6 +200,34 @@ function showToolColors(): void {
   }
 }
 settings.onChange(showToolColors)
+
+// Écriture → texte activée sur PC sans le moteur précis : on propose de le télécharger.
+let hwrWas = settings.value.handwriting
+settings.onChange(() => {
+  const on = settings.value.handwriting
+  if (on && !hwrWas && precise.available) {
+    void precise.installed().then((ok) => {
+      if (ok) return
+      notify('Pour une lecture fiable de l’écriture, téléchargez le moteur précis (TrOCR, open source, ≈ 60 Mo, une seule fois).', 'info', {
+        label: 'Télécharger',
+        run: async () => {
+          notify('Téléchargement du moteur d’écriture…', 'info')
+          try {
+            let last = -1
+            const ready = await precise.download((f) => {
+              const pct = Math.floor(f * 10) * 10
+              if (pct !== last) notify(`Téléchargement du moteur d’écriture… ${(last = pct)} %`, 'info')
+            })
+            notify(ready ? 'Moteur d’écriture installé.' : 'Le moteur d’écriture n’a pas pu démarrer.', ready ? 'success' : 'error')
+          } catch (e) {
+            notify(`Téléchargement impossible : ${(e as Error).message}`, 'error')
+          }
+        }
+      })
+    })
+  }
+  hwrWas = on
+})
 showToolColors()
 
 // Double-clic sur un graphique : rééditer ses données ; sur le texte d'un PDF : le modifier.
@@ -651,4 +679,4 @@ const make = {
   /** Trait de stylo à partir de points (coordonnées document) : tests de l'écriture → texte. */
   ink: (points: [number, number][], size = 2, color = '#1b1b1f') => buildInk({ tool: 'pen', points: points.map(([x, y]) => [x, y, 0.5]), size, color, style: 'solid', pressure: false })
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, hwrTools: { segment, inkImage, handwriting }, graphTools: { applyText, crossings, layout: layoutGraph, renderGraph, defaultGraph }, openPreferences: () => openPreferences(shortcuts) } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, hwrTools: { segment, inkImage, handwriting, precise, restoreAccents }, graphTools: { applyText, crossings, layout: layoutGraph, renderGraph, defaultGraph }, openPreferences: () => openPreferences(shortcuts) } })

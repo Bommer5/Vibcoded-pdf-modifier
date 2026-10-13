@@ -1,5 +1,6 @@
 import { comboFromEvent, prettyCombo, type ActionId, type ShortcutManager } from '../core/shortcuts'
 import { PAPER_STYLES } from '../core/paper'
+import { precise } from '../hwr/engine'
 import { settings, type PenButtonAction } from '../tools/settings'
 
 export type Theme = 'system' | 'dark' | 'light'
@@ -84,6 +85,11 @@ export function openPreferences(shortcuts: ShortcutManager): void {
         <label>Pause avant la conversion
           <select name="hwrDelay"><option value="700">Courte (0,7 s)</option><option value="1200">Normale (1,2 s)</option><option value="2000">Longue (2 s)</option><option value="3500">Très longue (3,5 s)</option></select>
         </label>
+        <div class="hwr-engine" hidden>
+          <p class="small"><b>Moteur de lecture précis</b> — TrOCR (Microsoft, open source), entraîné sur de vraies écritures. Environ 60 Mo à télécharger une seule fois, puis tout se fait hors ligne sur ce PC.</p>
+          <div class="row"><button type="button" class="primary hwr-get">Télécharger le moteur précis</button><span class="small hwr-state"></span></div>
+          <progress class="hwr-progress" max="1" value="0" hidden></progress>
+        </div>
         <h3 class="prefs-sub">Boutons du stylet</h3>
         <p class="muted small">La pointe écrit avec l'outil choisi. Chaque bouton agit tant qu'il est maintenu pendant le geste.</p>
         <div class="pen-map">
@@ -194,6 +200,37 @@ export function openPreferences(shortcuts: ShortcutManager): void {
   const hwrBox = $<HTMLInputElement>('[name=hwr]')
   hwrBox.checked = settings.value.handwriting
   hwrBox.addEventListener('change', () => settings.set('handwriting', hwrBox.checked))
+  // Moteur précis (PC) : état et téléchargement
+  const engineBox = $<HTMLElement>('.hwr-engine')
+  if (precise.available) {
+    engineBox.hidden = false
+    const state = $<HTMLElement>('.hwr-state')
+    const get = $<HTMLButtonElement>('.hwr-get')
+    const bar = $<HTMLProgressElement>('.hwr-progress')
+    const show = (ok: boolean): void => {
+      get.hidden = ok
+      state.textContent = ok ? '✓ Installé : utilisé pour convertir l’écriture.' : 'Non installé : un modèle plus simple est utilisé, beaucoup moins fiable.'
+    }
+    void precise.installed().then(show)
+    get.addEventListener('click', async () => {
+      get.disabled = true
+      bar.hidden = false
+      state.textContent = 'Téléchargement…'
+      try {
+        const ok = await precise.download((f) => {
+          bar.value = f
+          state.textContent = `Téléchargement… ${Math.round(f * 100)} %`
+        })
+        show(ok)
+        if (!ok) state.textContent = 'Le moteur n’a pas pu démarrer.'
+      } catch (e) {
+        state.textContent = `Échec : ${(e as Error).message}. Vérifiez la connexion et réessayez.`
+      } finally {
+        get.disabled = false
+        bar.hidden = true
+      }
+    })
+  }
   const hwrDelay = $<HTMLSelectElement>('[name=hwrDelay]')
   hwrDelay.value = String(settings.value.handwritingDelay)
   hwrDelay.addEventListener('change', () => settings.set('handwritingDelay', Number(hwrDelay.value)))

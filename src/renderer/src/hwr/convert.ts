@@ -220,8 +220,12 @@ export class HandwritingConverter {
 export function accept(c: Candidate, strokes: number, manual: boolean): boolean {
   const n = [...c.text.replace(/\s/g, '')].length
   if (!n) return false
+  if (c.conf !== undefined) return c.conf > (manual ? 0.35 : 0.6) && !(strokes >= 6 && n === 1)
   const perChar = c.score / n
-  return perChar > (manual ? -2.2 : -1.1) && !(strokes >= 6 && n === 1)
+  // Modèle intégré (peu fiable sur une vraie écriture) : en automatique, seulement une lecture
+  // très sûre d'au moins deux caractères ; « Convertir en texte » reste plus souple.
+  if (!manual) return perChar > -0.5 && n >= 2
+  return perChar > -2.2 && !(strokes >= 6 && n === 1)
 }
 
 let ctx2d: CanvasRenderingContext2D | null = null

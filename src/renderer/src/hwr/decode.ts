@@ -17,6 +17,8 @@ export interface Candidate {
   lexicon: boolean
   /** Somme des log10 fréquences des mots (dictionnaire). */
   lm: number
+  /** Confiance 0..1 donnée par le moteur (moteur précis) ; sinon la note ci-dessus sert. */
+  conf?: number
 }
 
 export interface TrieNode {

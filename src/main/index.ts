@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { download as hwrDownload, installed as hwrInstalled, readModelFile, remove as hwrRemove } from './hwr-models'
 import { integrateAppImage } from './linux-integration'
 import { convertWithOffice, findSoffice } from './office'
 
@@ -279,6 +280,12 @@ ipcMain.handle('print:pages', async (_e, pages: { png: Uint8Array; width: number
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+// Moteur d'écriture précis (téléchargé une fois)
+ipcMain.handle('hwr:installed', () => hwrInstalled())
+ipcMain.handle('hwr:download', (e) => hwrDownload(e.sender))
+ipcMain.handle('hwr:read', (_e, name: string) => readModelFile(name))
+ipcMain.handle('hwr:remove', () => hwrRemove())
 
 ipcMain.handle('office:available', () => findSoffice() !== null)
 ipcMain.handle('office:convert', (_e, name: string, data: Uint8Array, target: string) =>
