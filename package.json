@@ -52,7 +52,8 @@
   "dependencies": {
     "@capacitor/core": "^8.5.3",
     "@capacitor/filesystem": "^8.1.4",
-    "@capacitor/share": "^8.0.3"
+    "@capacitor/share": "^8.0.3",
+    "onnxruntime-web": "^1.30.0"
   },
   "author": {
     "name": "Feuillet"

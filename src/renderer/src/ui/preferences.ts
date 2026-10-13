@@ -73,6 +73,11 @@ export function openPreferences(shortcuts: ShortcutManager): void {
           </select>
         </label>
         <label class="check"><input type="checkbox" name="pressure" /> Trait plus épais quand on appuie plus fort (pression)</label>
+        <h3 class="prefs-sub">Écriture → texte</h3>
+        <label class="check"><input type="checkbox" name="hwr" /> Convertir ce que j'écris au stylo en texte (lettres, chiffres, symboles de maths ; les traits et dessins restent)</label>
+        <label>Pause avant la conversion
+          <select name="hwrDelay"><option value="700">Courte (0,7 s)</option><option value="1200">Normale (1,2 s)</option><option value="2000">Longue (2 s)</option><option value="3500">Très longue (3,5 s)</option></select>
+        </label>
         <h3 class="prefs-sub">Boutons du stylet</h3>
         <p class="muted small">La pointe écrit avec l'outil choisi. Chaque bouton agit tant qu'il est maintenu pendant le geste.</p>
         <div class="pen-map">
@@ -173,6 +178,12 @@ export function openPreferences(shortcuts: ShortcutManager): void {
   bind('pressure', 'pressure')
 
   // Stylet et tablette
+  const hwrBox = $<HTMLInputElement>('[name=hwr]')
+  hwrBox.checked = settings.value.handwriting
+  hwrBox.addEventListener('change', () => settings.set('handwriting', hwrBox.checked))
+  const hwrDelay = $<HTMLSelectElement>('[name=hwrDelay]')
+  hwrDelay.value = String(settings.value.handwritingDelay)
+  hwrDelay.addEventListener('change', () => settings.set('handwritingDelay', Number(hwrDelay.value)))
   const cursor = $<HTMLSelectElement>('[name=cursor]')
   cursor.value = settings.value.cursor
   cursor.addEventListener('change', () => settings.set('cursor', cursor.value as never))

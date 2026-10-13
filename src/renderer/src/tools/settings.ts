@@ -42,6 +42,10 @@ export interface ToolSettings {
   penButton2: PenButtonAction
   /** Bout gomme (stylet retourné). */
   penEraserEnd: PenButtonAction
+  /** Écriture → texte : ce qui est écrit au stylo est remplacé par du texte après une pause. */
+  handwriting: boolean
+  /** Pause (ms) avant la conversion. */
+  handwritingDelay: number
 }
 
 const DEFAULTS: ToolSettings = {
@@ -70,7 +74,9 @@ const DEFAULTS: ToolSettings = {
   cursor: 'dot',
   penButton1: 'lasso',
   penButton2: 'hand',
-  penEraserEnd: 'eraser'
+  penEraserEnd: 'eraser',
+  handwriting: false,
+  handwritingDelay: 1200
 }
 
 const KEY = 'feuillet.tools.v1'

@@ -546,3 +546,10 @@ button.big { padding: 10px 18px; font-size: 15px; border: 1px solid var(--panel-
 .pen-test.hit { background: var(--tint); color: var(--text); }
 .pad-keys { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
 .pad-keys kbd { font-size: 12px; }
+
+/* Écriture → texte */
+.qb-hwr { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; }
+.qb-hwr-ink { font-family: 'Comic Sans MS', 'Segoe Print', cursive; font-style: italic; font-weight: 400; }
+.hwr-chip { position: absolute; z-index: 30; display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px; box-shadow: 0 4px 16px #0003; }
+.hwr-chip button { height: 30px; padding: 0 10px; border-radius: 7px; font-size: 14px; }
+.hwr-chip .hwr-back { color: var(--muted); }

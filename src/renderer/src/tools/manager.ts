@@ -121,6 +121,11 @@ export class ToolManager {
     this.listeners.add(fn)
   }
 
+  /** Trait de stylo terminé (écriture → texte). */
+  onInk: ((o: InkObject) => void) | null = null
+  /** Le stylo se pose (écriture → texte : on attend la fin de l'écriture). */
+  onPenDown: (() => void) | null = null
+
   /** Dernier outil d'écriture (stylo ou surligneur) : la gomme y revient d'un geste. */
   lastInk: 'pen' | 'highlighter' = 'pen'
 
@@ -225,6 +230,7 @@ export class ToolManager {
 
     this.stroke = { tool, points: [[p.x, p.y, pressureOf(e)]], start: p, straight: false, lastMove: p, t0: performance.now(), page: page ?? undefined }
     if (tool === 'pen' || tool === 'highlighter') this.ed.history.begin() // un geste = une étape, même coupé au bord
+    if (tool === 'pen') this.onPenDown?.()
     if (tool === 'eraser') {
       this.ed.history.begin()
       this.erase(p)
@@ -373,6 +379,7 @@ export class ToolManager {
       pressure: s.tool === 'pen' && v.pressure
     })
     this.ed.add(ink)
+    if (s.tool === 'pen') this.onInk?.(ink)
   }
 
   private inkFor(tool: 'pen' | 'highlighter', pts: InkPoint[]): InkObject {

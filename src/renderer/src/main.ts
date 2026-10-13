@@ -17,6 +17,7 @@ import { editChart } from './charts/chart-dialog'
 import { chartObject, isChart } from './charts/chart-object'
 import { TableEditor } from './objects/table-editor'
 import { penActionOf, ToolManager, type Tool } from './tools/manager'
+import { HandwritingConverter } from './hwr/convert'
 import { MenuBar, type Menu } from './ui/menubar'
 import { Welcome } from './ui/welcome'
 import { applyTheme, openPreferences } from './ui/preferences'
@@ -150,6 +151,7 @@ const textSelection = new TextSelection(editor)
 tools.textSelection = textSelection
 const findBar = new FindBar(editor)
 new QuickBar(tools)
+const hwr = new HandwritingConverter(editor, tools)
 new TextToolbar(editor)
 const tableEditor = new TableEditor(editor)
 const properties = new PropertiesPanel(editor, tools, tableEditor)
@@ -220,6 +222,8 @@ function refreshButtons(): void {
     canvas.getActiveObject()?.type !== 'group'
   // Rogner : une image ou une page de PDF posée sur la page.
   ;($('selection-bar').querySelector('[data-action=crop]') as HTMLButtonElement).hidden = !(canvas.getActiveObject() instanceof FabricImage)
+  // Convertir en texte : des traits de stylo dans la sélection.
+  ;($('selection-bar').querySelector('[data-action=ink-to-text]') as HTMLButtonElement).hidden = !canvas.getActiveObjects().some((o) => (o as { ink?: { tool: string } }).ink?.tool === 'pen')
   ;(document.querySelector('[data-action=undo]') as HTMLButtonElement).disabled = !history.canUndo
   ;(document.querySelector('[data-action=redo]') as HTMLButtonElement).disabled = !history.canRedo
 }
@@ -249,6 +253,7 @@ const actions: Record<string, () => void | Promise<void>> = {
     const all = { name: 'PDF, images et documents', extensions: kinds.flatMap((f) => f.extensions) }
     await importer.insertPart(await platform.openFiles([all, ...kinds]), null)
   },
+  'ink-to-text': async () => void (await hwr.convertSelection()),
   crop: async () => {
     const o = canvas.getActiveObject()
     if (o instanceof FabricImage) await importer.recrop(o)
@@ -620,4 +625,4 @@ const make = {
   rect: (o: object) => new Rect(o),
   table: (rows: number, cols: number) => Table.create(rows, cols)
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, openPreferences: () => openPreferences(shortcuts) } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, openPreferences: () => openPreferences(shortcuts) } })

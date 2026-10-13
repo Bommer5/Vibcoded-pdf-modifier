@@ -161,6 +161,18 @@ export class QuickBar {
         styles.append(b)
       }
     }
+    if (this.tools.tool === 'pen') {
+      const g = group()
+      const b = document.createElement('button')
+      b.className = `qb-toggle qb-hwr ${v.handwriting ? 'active' : ''}`
+      b.innerHTML = '<span class="qb-hwr-ink">a</span>→<span>Aa</span>'
+      b.title = v.handwriting
+        ? 'Écriture → texte activée : ce que vous écrivez devient du texte après une courte pause (les traits et dessins restent). Cliquer pour désactiver.'
+        : 'Écriture → texte : ce que vous écrivez devient du texte (lettres, chiffres, symboles de maths). Cliquer pour activer.'
+      b.setAttribute('aria-pressed', String(v.handwriting))
+      b.addEventListener('click', () => settings.set('handwriting', !v.handwriting))
+      g.append(b)
+    }
     if (this.tools.tool === 'highlighter') {
       const g = group()
       const b = document.createElement('button')
