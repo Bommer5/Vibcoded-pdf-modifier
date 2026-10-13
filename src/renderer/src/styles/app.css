@@ -529,3 +529,10 @@ button.big { padding: 10px 18px; font-size: 15px; border: 1px solid var(--panel-
 .crop-nav button { min-width: 36px; font-size: 18px; line-height: 1; }
 .crop-num { width: 4.5em; }
 .crop-all { margin-left: auto; }
+
+/* Stylo ↔ gomme : bascule d'un geste dans la barre rapide */
+.qb-switch { gap: 2px; padding: 2px; background: var(--hover); border-radius: 10px; }
+.qb-tool { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; border: none; background: transparent; color: var(--text); font-size: 13px; }
+.qb-tool.active { background: var(--accent); color: #fff; }
+.qb-tool:not(.active):hover { background: var(--panel); }
+@media (max-width: 600px) { .qb-tool span { display: none; } .qb-tool { padding: 0 8px; } }

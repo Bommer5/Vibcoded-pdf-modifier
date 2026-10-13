@@ -155,6 +155,8 @@ const tableEditor = new TableEditor(editor)
 const properties = new PropertiesPanel(editor, tools, tableEditor)
 
 function setTool(tool: Tool): void {
+  // Gomme choisie alors qu'elle est déjà active (bouton ou touche E) : retour au stylo.
+  if (tool === 'eraser' && tools.tool === 'eraser') return tools.toggleEraser()
   tools.set(tool)
 }
 editor.placed = () => setTool('select')
@@ -165,7 +167,7 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   hand: 'Glissez pour déplacer la vue · Molette : défiler · Ctrl+molette : zoom',
   pen: 'Maj : ligne droite · Toucher un objet : le sélectionner · Appui dans la sélection : la déplacer · Bouton du stylet : lasso',
   highlighter: 'Sur le texte d’un PDF, le surlignage s’aligne sur les lignes · Maj : trait droit libre',
-  eraser: 'Glissez sur un trait pour l’effacer · Le bout gomme du stylet efface aussi',
+  eraser: 'Glissez sur un trait pour l’effacer · E (ou la gomme à nouveau) : revenir au stylo · Le bout gomme du stylet efface aussi',
   shape: 'Glissez pour tracer · Maj : carré, cercle, angles de 15° · La forme reste sélectionnée pour l’ajuster',
   text: 'Clic : texte · Glisser : zone de texte · Entourer à main levée : texte qui épouse la forme',
   table: 'Cliquez pour placer le tableau · Double-clic sur une cellule pour écrire',

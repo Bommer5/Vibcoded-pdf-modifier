@@ -174,6 +174,39 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   const notch = await pinch([100])
   check('Ctrl + mouse wheel notch: one ~10 % step', Math.abs(notch.ratio - 1 / 1.1) < 0.01, JSON.stringify(notch))
 
+  // Stylo ↔ gomme d'un geste : bouton de la barre rapide, touche E, ou la gomme à nouveau
+  const tool = () => win.evaluate(() => window.__feuillet.tools.tool)
+  await win.evaluate(() => window.__feuillet.tools.set('highlighter'))
+  check('drawing bar shows the pen / eraser switch', await win.locator('.quickbar .qb-switch .qb-tool').count() === 2)
+  await win.click('.quickbar .qb-switch .qb-tool:nth-child(2)')
+  check('switch button: highlighter → eraser', (await tool()) === 'eraser')
+  await win.click('.quickbar .qb-switch .qb-tool:nth-child(1)')
+  check('switch button: back to the highlighter it came from', (await tool()) === 'highlighter')
+  await win.evaluate(() => window.__feuillet.tools.set('pen'))
+  await win.keyboard.press('KeyE')
+  const afterE = await tool()
+  await win.keyboard.press('KeyE')
+  check('E toggles pen ↔ eraser', afterE === 'eraser' && (await tool()) === 'pen', afterE)
+  await win.click('#toolbar [data-tool=eraser]')
+  await win.click('#toolbar [data-tool=eraser]')
+  check('eraser button pressed again goes back to the pen', (await tool()) === 'pen')
+
+  // Trait net pendant l'écriture (aperçu sans image en cache agrandie), même zoomé
+  await win.evaluate(() => window.__feuillet.editor.viewport.zoomAt(3, null))
+  await win.mouse.move(cx - 150, cy)
+  await win.mouse.down()
+  for (let i = 1; i <= 30; i++) await win.mouse.move(cx - 150 + i * 10, cy + Math.sin(i / 4) * 40)
+  const live = await win.evaluate(() => {
+    const el = window.__feuillet.editor.canvas.upperCanvasEl
+    const d = el.getContext('2d').getImageData(0, 0, el.width, el.height).data
+    let ink = 0, soft = 0
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 20) { ink++; if (d[i] < 235) soft++ }
+    return { ink, soft: soft / Math.max(1, ink) }
+  })
+  await win.mouse.up()
+  check('stroke is sharp while writing (not an enlarged blurry image)', live.ink > 500 && live.soft < 0.3, JSON.stringify(live))
+  await win.keyboard.press('Control+z')
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()

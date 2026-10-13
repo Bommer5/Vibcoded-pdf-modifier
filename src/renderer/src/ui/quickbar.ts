@@ -60,6 +60,27 @@ export class QuickBar {
       return g
     }
 
+    // Stylo / surligneur ↔ gomme : un gros bouton au début de la barre (et la touche E).
+    const tool = this.tools.tool
+    if (tool === 'pen' || tool === 'highlighter' || tool === 'eraser') {
+      const sw = group()
+      sw.classList.add('qb-switch')
+      const back = this.tools.lastInk
+      const ink = document.createElement('button')
+      ink.className = `qb-tool ${tool !== 'eraser' ? 'active' : ''}`
+      ink.innerHTML = `${icon(tool === 'eraser' ? back : tool, 18)}<span>${(tool === 'eraser' ? back : tool) === 'pen' ? 'Stylo' : 'Surligneur'}</span>`
+      ink.title = 'Écrire (E pour basculer avec la gomme)'
+      ink.setAttribute('aria-pressed', String(tool !== 'eraser'))
+      ink.addEventListener('click', () => tool === 'eraser' && this.tools.toggleEraser())
+      const eraser = document.createElement('button')
+      eraser.className = `qb-tool ${tool === 'eraser' ? 'active' : ''}`
+      eraser.innerHTML = `${icon('eraser', 18)}<span>Gomme</span>`
+      eraser.title = 'Gomme (E pour basculer avec le stylo)'
+      eraser.setAttribute('aria-pressed', String(tool === 'eraser'))
+      eraser.addEventListener('click', () => tool !== 'eraser' && this.tools.toggleEraser())
+      sw.append(ink, eraser)
+    }
+
     // Formes : le choix de la forme est ici (sur téléphone, le panneau de droite est replié).
     if (this.tools.tool === 'shape') {
       const kinds = group()

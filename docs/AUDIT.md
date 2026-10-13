@@ -90,7 +90,7 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **328 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  **334 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
   PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
   superposés, insertion de PDF, modification fidèle du texte d'un PDF (LibreOffice et
   Chrome : polices Type 3 en morceaux, CID TrueType, texte mis à l'échelle), OCR, élan de la main, import d'une partie d'un PDF ou d'une image (cadrage, export

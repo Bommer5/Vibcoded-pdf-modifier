@@ -118,8 +118,17 @@ export class ToolManager {
     this.listeners.add(fn)
   }
 
+  /** Dernier outil d'écriture (stylo ou surligneur) : la gomme y revient d'un geste. */
+  lastInk: 'pen' | 'highlighter' = 'pen'
+
+  /** Gomme ↔ stylo (ou surligneur) : un seul bouton, une seule touche. */
+  toggleEraser(): void {
+    this.set(this.tool === 'eraser' ? this.lastInk : 'eraser')
+  }
+
   set(tool: Tool): void {
     const c = this.ed.canvas
+    if (tool === 'pen' || tool === 'highlighter') this.lastInk = tool
     this.tool = tool
     c.isDrawingMode = false
     c.selection = tool === 'select'
@@ -454,7 +463,7 @@ export class ToolManager {
     if (s.tool === 'lasso') return this.previewLasso(s)
     if (s.recognized) {
       const shape = this.shapeFromRecognized(s.recognized)
-      if (shape) return this.withTop((ctx) => shape.render(ctx))
+      if (shape) return this.withTop((ctx) => shape.set({ objectCaching: false }).render(ctx))
     }
     const v = settings.value
     if (!s.points.length) return this.clearTop()
@@ -468,7 +477,7 @@ export class ToolManager {
     }
     if (s.tool === 'shape') {
       const obj = this.buildShape(v.shape, s.start, new Point(pts.at(-1)![0], pts.at(-1)![1]))
-      this.withTop((ctx) => obj?.render(ctx))
+      this.withTop((ctx) => obj?.set({ objectCaching: false }).render(ctx))
       return
     }
     const ink = buildInk({
@@ -479,7 +488,9 @@ export class ToolManager {
       style: s.tool === 'pen' ? v.penStyle : 'solid',
       pressure: s.tool === 'pen' && v.pressure
     })
-    ink.set({ globalCompositeOperation: 'source-over' })
+    // Pas d'image en cache pour l'aperçu : hors du canevas, Fabric la calculerait au zoom 1
+    // puis l'agrandirait (trait flou pendant l'écriture, net seulement au lâcher).
+    ink.set({ globalCompositeOperation: 'source-over', objectCaching: false })
     this.withTop((ctx) => ink.render(ctx))
   }
 
