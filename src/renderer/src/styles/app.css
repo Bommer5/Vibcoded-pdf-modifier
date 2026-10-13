@@ -508,3 +508,24 @@ button.big { padding: 10px 18px; font-size: 15px; border: 1px solid var(--panel-
 .qb-shape { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; }
 .qb-shape.active { background: var(--tint); color: var(--accent-ink); outline: 1px solid var(--accent); }
 @media (max-width: 700px) { .qb-shape { width: 40px; height: 40px; } }
+
+/* --- Choisir une partie d'une page (exercice, détail d'une photo) --- */
+.crop-dialog { width: min(820px, calc(100vw - 16px)); }
+.crop-dialog form { display: flex; flex-direction: column; gap: 10px; }
+.crop-hint { margin: -4px 0 0; }
+.crop-stage { height: min(68vh, 900px); display: flex; align-items: center; justify-content: center; background: var(--workspace); border-radius: 8px; overflow: hidden; touch-action: none; }
+.crop-page { position: relative; background: #fff; box-shadow: 0 1px 6px #0005; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none; }
+.crop-page.loading { min-width: 200px; min-height: 280px; opacity: .6; }
+.crop-canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+.crop-rect { position: absolute; outline: 2px solid var(--accent); box-shadow: 0 0 0 9999px #0f172a73; cursor: move; touch-action: none; }
+.crop-handle { position: absolute; width: 18px; height: 18px; margin: -9px; background: #fff; border: 2px solid var(--accent); border-radius: 50%; touch-action: none; }
+.crop-handle[data-corner=nw] { left: 0; top: 0; cursor: nwse-resize; }
+.crop-handle[data-corner=ne] { right: 0; top: 0; margin-right: -9px; cursor: nesw-resize; }
+.crop-handle[data-corner=sw] { left: 0; bottom: 0; margin-bottom: -9px; cursor: nesw-resize; }
+.crop-handle[data-corner=se] { right: 0; bottom: 0; margin: 0 -9px -9px 0; cursor: nwse-resize; }
+@media (pointer: coarse) { .crop-handle { width: 26px; height: 26px; margin: -13px; } .crop-handle[data-corner=ne] { margin-right: -13px; } .crop-handle[data-corner=sw] { margin-bottom: -13px; } .crop-handle[data-corner=se] { margin: 0 -13px -13px 0; } }
+.crop-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.crop-nav { display: inline-flex; align-items: center; gap: 6px; }
+.crop-nav button { min-width: 36px; font-size: 18px; line-height: 1; }
+.crop-num { width: 4.5em; }
+.crop-all { margin-left: auto; }

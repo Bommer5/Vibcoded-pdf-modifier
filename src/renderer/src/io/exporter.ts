@@ -360,14 +360,38 @@ export class Exporter {
     const bytes = assets.get(ref.assetId)?.bytes
     // Transparence : rendu en image (le formulaire PDF n'en porte pas).
     if (!bytes || o.opacity < 1) return false
-    const src = await pdfLib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false })
-    const srcPage = src.getPage(ref.index)
+    let src = await pdfLib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false })
+    let srcPage = src.getPage(ref.index)
     // Page tournée (/Rotate) : l'image affichée est déjà juste, on la garde.
     if (srcPage.getRotation().angle % 360 !== 0) return false
     const crop = srcPage.getCropBox()
-    const embedded = await out.embedPage(srcPage, { left: crop.x, bottom: crop.y, right: crop.x + crop.width, top: crop.y + crop.height })
-    const w = (o as FabricObject & { width: number }).width
-    const h = (o as FabricObject & { height: number }).height
+    // Page rognée (une partie seulement) : seule la zone gardée est intégrée. Le cadrage est
+    // en pixels de l'image affichée, ramenés aux points de la page d'origine.
+    const img = o as FabricObject & { width: number; height: number; cropX?: number; cropY?: number; getElement?(): HTMLImageElement | HTMLCanvasElement }
+    const el = img.getElement?.()
+    const natW = (el as HTMLImageElement | undefined)?.naturalWidth || el?.width || img.width
+    const natH = (el as HTMLImageElement | undefined)?.naturalHeight || el?.height || img.height
+    const kx = crop.width / natW
+    const ky = crop.height / natH
+    const [x0, y0] = [(img.cropX ?? 0) * kx, (img.cropY ?? 0) * ky]
+    const [x1, y1] = [x0 + img.width * kx, y0 + img.height * ky]
+    if (x0 > 0.5 || y0 > 0.5 || x1 < crop.width - 0.5 || y1 < crop.height - 0.5) {
+      // Le texte hors du cadre est retiré pour de bon : invisible, il ressortirait quand même
+      // au copier-coller ou à la recherche (l'autre exercice, le corrigé…).
+      const W = crop.width
+      const H = crop.height
+      const masks: [number, number, number, number][] = [[0, 0, W, y0], [0, y1, W, H], [0, y0, x0, y1], [x1, y0, W, y1]]
+      const clean = await pdfEngine.redacted(ref.assetId, [{ page: ref.index, masks: masks.filter(([a, b, c, d]) => c - a > 0.5 && d - b > 0.5) }]).catch(() => null)
+      if (clean) {
+        src = await pdfLib.PDFDocument.load(clean, { ignoreEncryption: true, updateMetadata: false })
+        srcPage = src.getPage(ref.index)
+      }
+    }
+    const left = crop.x + (img.cropX ?? 0) * kx
+    const top = crop.y + crop.height - (img.cropY ?? 0) * ky
+    const embedded = await out.embedPage(srcPage, { left, top, right: left + img.width * kx, bottom: top - img.height * ky })
+    const w = img.width
+    const h = img.height
     // (u, v) de la page d'origine (v vers le haut) → repère local de l'image (centré, y vers le bas).
     const local = [w / embedded.width, 0, 0, -h / embedded.height, -w / 2, h / 2]
     const scene = util.multiplyTransformMatrices(o.calcTransformMatrix(), local as never)

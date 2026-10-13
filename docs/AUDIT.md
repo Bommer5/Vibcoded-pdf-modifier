@@ -90,10 +90,11 @@ paragraphes).
 ## 4. Vérifications automatiques
 
 - `npm run test:e2e` : application complète pilotée comme par un humain (souris, clavier).
-  **304 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
+  **324 vérifications** : formats, outils, fonctions essentielles, fichiers, qualité du
   PDF, impression, finitions, mise en forme du texte façon Word, sélection d'objets
   superposés, insertion de PDF, modification fidèle du texte d'un PDF (LibreOffice et
-  Chrome : polices Type 3 en morceaux, CID TrueType, texte mis à l'échelle), OCR, élan de la main.
+  Chrome : polices Type 3 en morceaux, CID TrueType, texte mis à l'échelle), OCR, élan de la main, import d'une partie d'un PDF ou d'une image (cadrage, export
+  limité à la zone, rognage ensuite).
 - `tests/e2e/ocr-bench.cjs` (inclus) : banc d'essai de l'OCR sur 20 pages « scannées » au
   texte connu (polices, 8 à 36 pt, gras, italique, symboles, majuscules accentuées, 100 à
   300 ppp, JPEG bruité, flou, page penchée, couleurs, texte clair sur fond sombre, deux

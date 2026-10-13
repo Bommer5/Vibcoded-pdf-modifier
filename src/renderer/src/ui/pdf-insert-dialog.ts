@@ -1,7 +1,7 @@
 import { enterSubmitsPrimary } from './dialog-keys'
 import { parseRange } from './export-dialog'
 
-export type PdfInsertMode = 'image' | 'pages-pdf' | 'pages-doc'
+export type PdfInsertMode = 'image' | 'part' | 'pages-pdf' | 'pages-doc'
 
 export interface PdfInsertChoice {
   mode: PdfInsertMode
@@ -16,6 +16,7 @@ const STORAGE_KEY = 'feuillet.pdfInsert'
 /**
  * « Insérer un PDF » dans un document existant, sans mauvaise surprise de format :
  * - comme image sur la page (par défaut) : se déplace et se redimensionne librement ;
+ * - une partie d'une page seulement (un exercice…) : la zone s'entoure dans la fenêtre suivante ;
  * - comme nouvelles pages au format du PDF (portrait reste portrait, paysage reste paysage) ;
  * - comme nouvelles pages au format du document (le PDF est centré, sans déformation).
  * Choix des pages (toutes, actuelle, plage) et de la position. Aperçu de la première page.
@@ -51,6 +52,8 @@ export function askPdfInsert(
         <legend>Comment l'insérer ?</legend>
         <label class="pi-mode"><input type="radio" name="mode" value="image" />
           <span><b>Comme image sur la page</b><small>Se déplace et se redimensionne librement, comme une photo. Reste net à l'export.</small></span></label>
+        <label class="pi-mode"><input type="radio" name="mode" value="part" />
+          <span><b>Une partie d’une page</b><small>Un exercice, un schéma, un paragraphe : choisissez la page puis entourez la zone.</small></span></label>
         <label class="pi-mode"><input type="radio" name="mode" value="pages-pdf" />
           <span><b>Nouvelles pages, format du PDF</b><small class="pi-pdf-size"></small></span></label>
         <label class="pi-mode"><input type="radio" name="mode" value="pages-doc" />
@@ -94,7 +97,9 @@ export function askPdfInsert(
   position.value = remembered?.position ?? 'after'
   const update = (): void => {
     const m = (form.elements.namedItem('mode') as RadioNodeList).value
-    $<HTMLElement>('.pi-position').hidden = m === 'image'
+    $<HTMLElement>('.pi-position').hidden = m === 'image' || m === 'part'
+    // Une partie : la page se choisit dans la fenêtre suivante.
+    $<HTMLElement>('.pi-row').style.display = m === 'part' ? 'none' : ''
     $<HTMLElement>('.pi-range').hidden = pagesSel.value !== 'range'
     error.hidden = true
   }
@@ -105,6 +110,7 @@ export function askPdfInsert(
   })
 
   const chosen = (): number[] | null => {
+    if ((form.elements.namedItem('mode') as RadioNodeList).value === 'part') return [0]
     if (pagesSel.value === 'first') return [0]
     if (pagesSel.value === 'range') {
       const list = parseRange(range.value, sizes.length)

@@ -1,4 +1,4 @@
-import { cache as fabricCache, Canvas, Point, Rect, Textbox, util, type FabricObject } from 'fabric'
+import { cache as fabricCache, Canvas, FabricImage, Point, Rect, Textbox, util, type FabricObject } from 'fabric'
 import { Table } from './objects/table'
 import './styles/app.css'
 import './core/props'
@@ -215,6 +215,8 @@ function refreshButtons(): void {
   selectionBar.hidden = !hasSelection
   ;($('selection-bar').querySelector('[data-action=ungroup]') as HTMLButtonElement).disabled =
     canvas.getActiveObject()?.type !== 'group'
+  // Rogner : une image ou une page de PDF posée sur la page.
+  ;($('selection-bar').querySelector('[data-action=crop]') as HTMLButtonElement).hidden = !(canvas.getActiveObject() instanceof FabricImage)
   ;(document.querySelector('[data-action=undo]') as HTMLButtonElement).disabled = !history.canUndo
   ;(document.querySelector('[data-action=redo]') as HTMLButtonElement).disabled = !history.canRedo
 }
@@ -239,6 +241,15 @@ const actions: Record<string, () => void | Promise<void>> = {
   },
   open: async () => session.open(await platform.openFiles(OPEN_FILTERS)),
   insert: async () => importer.insert(await platform.openFiles(OPEN_FILTERS), null),
+  'insert-part': async () => {
+    const kinds = OPEN_FILTERS.filter((f) => ['PDF', 'Images', 'Documents'].includes(f.name))
+    const all = { name: 'PDF, images et documents', extensions: kinds.flatMap((f) => f.extensions) }
+    await importer.insertPart(await platform.openFiles([all, ...kinds]), null)
+  },
+  crop: async () => {
+    const o = canvas.getActiveObject()
+    if (o instanceof FabricImage) await importer.recrop(o)
+  },
   'insert-image': async () => importer.insert(await platform.openFiles(OPEN_FILTERS.filter((f) => f.name === 'Images')), null),
   save: async () => void (await session.save()),
   'save-as': async () => void (await session.saveAs()),
@@ -456,6 +467,7 @@ const menus: Menu[] = [
     label: 'Insertion',
     items: [
       { label: 'Image, PDF ou document…', action: 'insert', shortcut: 'insert' },
+      { label: 'Une partie d’un PDF ou d’une image…', action: 'insert-part', hint: 'Un exercice dans un long PDF : entourez la zone à garder' },
       ...(matchMedia('(pointer: coarse)').matches ? [{ label: 'Prendre une photo…', action: 'camera' }] : []),
       { label: 'Page (style par défaut)', action: 'add-page' },
       ...PAPER_STYLES.map((p) => ({ label: `Page — ${p.label}`, action: `add-page:${p.id}` })),

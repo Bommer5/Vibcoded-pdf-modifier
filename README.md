@@ -18,6 +18,10 @@ pour les tablettes graphiques (Wacom, XP-Pen, Huion, Windows Ink, stylets Androi
   descend ou remonte, comme dans Word. L'export PDF réintègre la police d'origine.
 - **Ctrl+S enregistre dans le PDF ouvert**. Il reste lisible partout, et Feuillet le rouvre
   entièrement modifiable.
+- **N'importer qu'une partie** (un exercice dans un long PDF, un détail d'une photo) :
+  Insertion > « Une partie d'un PDF ou d'une image… », ou « Une partie d'une page » dans la
+  fenêtre Insérer un PDF. On choisit la page, on entoure la zone. Le bouton « Rogner » ajuste
+  ensuite le cadrage ; à l'export, seule la zone est gardée (en vectoriel, texte compris).
 - **OCR : le texte en image devient du texte** (page scannée, photo, texte enregistré comme
   image) : bouton « Reconnaître le texte » des outils PDF. Tout se passe sur l'appareil, sans
   internet (Tesseract, modèle français). On peut ensuite chercher, surligner et *modifier* ce

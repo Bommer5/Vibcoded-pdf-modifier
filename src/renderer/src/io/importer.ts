@@ -11,6 +11,7 @@ import { loadProject } from './project'
 import { stripAnnotations } from './hybrid'
 import { askPassword } from '../ui/password'
 import { askPdfInsert } from '../ui/pdf-insert-dialog'
+import { askCrop, type CropRect, type CropSource } from '../ui/crop-dialog'
 import { decodeText, importTextAsPages, textBox, TEXT_EXT } from './text'
 import { importXournal } from './xournal'
 
@@ -62,6 +63,37 @@ export const OPEN_FILTERS: FileFilter[] = [
 
 const PX_TO_PT = 0.75 // 96 ppp → 72 ppp
 const LONG_TEXT_LINES = 40
+
+/** Ne garde qu'une partie d'une image (fractions 0 à 1 de l'image entière). */
+export function applyCrop(img: FabricImage, r: CropRect): void {
+  const el = img.getElement() as HTMLImageElement | HTMLCanvasElement
+  const W = (el as HTMLImageElement).naturalWidth || el.width
+  const H = (el as HTMLImageElement).naturalHeight || el.height
+  img.set({ cropX: Math.round(r.x * W), cropY: Math.round(r.y * H), width: Math.max(1, Math.round(r.w * W)), height: Math.max(1, Math.round(r.h * H)) })
+  img.setCoords()
+}
+
+/** Copie réduite (côté le plus long ≤ max) d'une image, pour l'aperçu du cadrage. */
+function scaled(src: CanvasImageSource & { width: number; height: number }, max: number): HTMLCanvasElement {
+  const w0 = (src as HTMLImageElement).naturalWidth || src.width
+  const h0 = (src as HTMLImageElement).naturalHeight || src.height
+  const k = Math.min(1, max / Math.max(w0, h0))
+  const c = document.createElement('canvas')
+  c.width = Math.max(1, Math.round(w0 * k))
+  c.height = Math.max(1, Math.round(h0 * k))
+  c.getContext('2d')!.drawImage(src, 0, 0, c.width, c.height)
+  return c
+}
+
+async function imageCanvas(asset: Asset): Promise<HTMLCanvasElement> {
+  const bmp = await createImageBitmap(new Blob([asset.bytes as BlobPart], { type: asset.mime }))
+  const c = document.createElement('canvas')
+  c.width = bmp.width
+  c.height = bmp.height
+  c.getContext('2d')!.drawImage(bmp, 0, 0)
+  bmp.close()
+  return c
+}
 /** Nom de la pièce jointe d'un « PDF modifiable ». */
 export const EMBEDDED_PROJECT = 'feuillet-project.feuillet'
 
@@ -236,6 +268,7 @@ export class Importer {
     const target = this.targetPage(at)
     const choice = await askPdfInsert(name, sizes, target, this.thumbnail(asset.id, sizes[0]))
     if (!choice) return
+    if (choice.mode === 'part') return this.insertPdfPart(asset, sizes, at, choice.pages[0] ?? 0)
     const { doc } = this.ed
     if (choice.mode === 'image') {
       // Première page choisie sur la page visée, les suivantes sur les pages d'après (créées au besoin).
@@ -266,6 +299,102 @@ export class Importer {
       added.push(after)
     }
     if (added[0]) this.ed.viewport.fit(doc.box(added[0]))
+  }
+
+  /**
+   * Une partie seulement d'un fichier (un exercice dans un long PDF, un détail d'une photo) :
+   * on choisit la page puis on entoure la zone. Pour un PDF, la page entière est gardée
+   * derrière le cadrage : « Rogner » permet de l'agrandir ensuite, l'export reste vectoriel.
+   */
+  async insertPart(files: OpenedFile[], at: Point | null = null): Promise<void> {
+    await this.guard(async () => {
+      for (const file of files) {
+        switch (kindOf(file.name)) {
+          case 'pdf': {
+            const { asset, sizes } = await this.loadPdf(file.data, file.name)
+            await this.insertPdfPart(asset, sizes, at)
+            break
+          }
+          case 'office': {
+            if (!(await platform.officeAvailable())) throw new Error(`Pour ${file.name}, installez LibreOffice (gratuit) ou enregistrez-le en PDF`)
+            this.ed.notify(`Conversion de ${file.name}…`)
+            const { asset, sizes } = await this.loadPdf(await platform.officeConvert(file.name, file.data, 'pdf'), file.name)
+            await this.insertPdfPart(asset, sizes, at)
+            break
+          }
+          case 'image': {
+            const frames = await decodeImage(extOf(file.name), file.data)
+            const choice = await askCrop('Insérer une partie de l’image', 'Insérer', {
+              count: frames.length,
+              render: async (i, max) => scaled(await imageCanvas(frames[i]), max)
+            })
+            if (!choice) break
+            const img = await FabricImage.fromURL(frames[choice.index].url)
+            ;(img as Obj).assetId = frames[choice.index].id
+            img.set({ scaleX: PX_TO_PT, scaleY: PX_TO_PT })
+            applyCrop(img, choice.rect)
+            await this.ed.history.transaction(() => this.place(img, at))
+            break
+          }
+          default:
+            await this.insert([file], at)
+        }
+      }
+    })
+  }
+
+  private async insertPdfPart(asset: Asset, sizes: { width: number; height: number }[], at: Point | null, first = 0): Promise<void> {
+    const choice = await askCrop('Insérer une partie du PDF', 'Insérer', this.pdfSource(asset.id, sizes), { index: first })
+    if (!choice) return
+    const img = await this.pdfPageImage(asset.id, choice.index, sizes[choice.index])
+    applyCrop(img, choice.rect)
+    await this.ed.history.transaction(() => this.place(img, at))
+  }
+
+  private pdfSource(id: string, sizes: { width: number; height: number }[]): CropSource {
+    return {
+      count: sizes.length,
+      render: async (i, max) => {
+        const k = max / Math.max(sizes[i].width, sizes[i].height)
+        const w = Math.max(1, Math.round(sizes[i].width * k))
+        const h = Math.max(1, Math.round(sizes[i].height * k))
+        const bmp = await pdfEngine.render(id, i, w, h)
+        const c = document.createElement('canvas')
+        c.width = w
+        c.height = h
+        const ctx = c.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, w, h)
+        ctx.drawImage(bmp, 0, 0)
+        bmp.close()
+        return c
+      }
+    }
+  }
+
+  /**
+   * Rogner une image ou une page de PDF déjà posée : l'image entière est montrée avec le
+   * cadrage actuel, qu'on peut réduire ou agrandir. La partie gardée ne bouge pas sur la page.
+   */
+  async recrop(img: FabricImage): Promise<void> {
+    const el = img.getElement() as HTMLImageElement | HTMLCanvasElement
+    const W = (el as HTMLImageElement).naturalWidth || el.width
+    const H = (el as HTMLImageElement).naturalHeight || el.height
+    if (!W || !H) return
+    const current: CropRect = { x: (img.cropX ?? 0) / W, y: (img.cropY ?? 0) / H, w: img.width / W, h: img.height / H }
+    const choice = await askCrop('Rogner', 'Appliquer', { count: 1, render: async (_i, max) => scaled(el, max) }, { index: 0, rect: current })
+    if (!choice) return
+    await this.ed.history.transaction(() => {
+      // Centre de la nouvelle zone, dans le repère de l'image (centré), puis sur la page.
+      const cx = choice.rect.x * W + (choice.rect.w * W) / 2 - (img.cropX ?? 0) - img.width / 2
+      const cy = choice.rect.y * H + (choice.rect.h * H) / 2 - (img.cropY ?? 0) - img.height / 2
+      const center = util.transformPoint(new Point(cx, cy), img.calcTransformMatrix())
+      applyCrop(img, choice.rect)
+      img.setPositionByOrigin(center, 'center', 'center')
+      img.setCoords()
+      this.ed.history.touch(img)
+    })
+    this.ed.canvas.requestRenderAll()
   }
 
   /** Ouvre un PDF (mot de passe compris) et lit la taille de ses pages. */
