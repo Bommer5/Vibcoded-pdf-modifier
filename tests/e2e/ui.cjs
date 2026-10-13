@@ -192,7 +192,8 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   check('eraser button pressed again goes back to the pen', (await tool()) === 'pen')
 
   // Trait net pendant l'écriture (aperçu sans image en cache agrandie), même zoomé
-  await win.evaluate(() => window.__feuillet.editor.viewport.zoomAt(3, null))
+  // Page centrée d'abord : après l'élan de la main, le centre peut tomber entre deux pages
+  await win.evaluate(() => { window.__feuillet.goToPage(1); window.__feuillet.editor.viewport.zoomAt(3, null) })
   await win.mouse.move(cx - 150, cy)
   await win.mouse.down()
   for (let i = 1; i <= 30; i++) await win.mouse.move(cx - 150 + i * 10, cy + Math.sin(i / 4) * 40)
@@ -208,7 +209,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   await win.keyboard.press('Control+z')
 
   // Curseur : point plein par défaut (pas de croix système par-dessus), réglable
-  await win.evaluate(() => { window.__feuillet.editor.viewport.zoomAt(1, null); window.__feuillet.tools.set('pen') })
+  await win.evaluate(() => { window.__feuillet.goToPage(1); window.__feuillet.editor.viewport.zoomAt(1, null); window.__feuillet.tools.set('pen') })
   check('pen cursor: solid dot, no system crosshair', (await win.evaluate(() => window.__feuillet.editor.canvas.defaultCursor)) === 'none')
   await win.mouse.move(cx + 3, cy + 3)
   await win.mouse.move(cx, cy)

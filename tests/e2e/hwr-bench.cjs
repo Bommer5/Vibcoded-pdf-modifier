@@ -106,6 +106,26 @@ function rot(s, deg) {
     stats[vname] = { cer: (100 * errs) / chars, exact: (100 * exact) / items.length, conv: (100 * converted) / items.length, words: (100 * wordsOk) / words, n: items.length }
   }
 
+  // Maths, parenthèses et symboles (∑ / % \\ √ …) : série fixe
+  const mathRows = []
+  let mErr = 0, mChars = 0, mExact = 0, parTotal = 0, parOk = 0
+  for (const it of bench.math ?? []) {
+    const b = bbox(it.strokes)
+    const r = await run([{ x: 40 - b.x0, y: 120 - b.y0, strokes: it.strokes }])
+    const got = norm(r.texts.map((t) => t.text).join(' '))
+    const truth = norm(it.text)
+    mErr += lev(got, truth)
+    mChars += truth.length
+    mExact += got === truth
+    for (const ch of '()[]{}') {
+      const want = [...truth].filter((c) => c === ch).length
+      parTotal += want
+      parOk += Math.min(want, [...got].filter((c) => c === ch).length)
+    }
+    mathRows.push(`| ${truth.replace(/\|/g, '\\|')} | ${got.replace(/\|/g, '\\|') || '*(encre gardée)*'} |`)
+  }
+  stats.maths = { cer: (100 * mErr) / Math.max(1, mChars), exact: (100 * mExact) / Math.max(1, mathRows.length), conv: 100, words: NaN, n: mathRows.length }
+
   // Dessins seuls : doivent rester de l'encre
   let kept = 0
   const falsePos = []
@@ -137,15 +157,18 @@ function rot(s, deg) {
     '## Écriture → texte : résultats', '',
     `Chargement du modèle : ${loadMs} ms ; conversion : ${(lineMs / lines).toFixed(0)} ms par ligne en moyenne`, '',
     '| Variante | CER | Lignes exactes | Mots exacts | Converties | Échantillons |', '|---|---|---|---|---|---|',
-    ...Object.entries(stats).map(([k, s]) => `| ${k} | ${s.cer.toFixed(1)} % | ${s.exact.toFixed(0)} % | ${s.words.toFixed(0)} % | ${s.conv.toFixed(0)} % | ${s.n} |`),
+    ...Object.entries(stats).map(([k, s]) => `| ${k} | ${s.cer.toFixed(1)} % | ${s.exact.toFixed(0)} % | ${Number.isNaN(s.words) ? "—" : s.words.toFixed(0) + " %"} | ${s.conv.toFixed(0)} % | ${s.n} |`),
     '', `Dessins gardés en encre : ${kept} / ${bench.drawings.length}`, ...falsePos.map((f) => `- converti à tort : ${f}`),
     '', '| Cas | Lu | Attendu | Traits d’encre restants |', '|---|---|---|---|', ...compo.map((c) => `| ${c.join(' | ')} |`),
+    '', `Parenthèses et crochets retrouvés : ${parOk} / ${parTotal}`,
+    '', '| Maths écrit | Lu |', '|---|---|', ...mathRows,
     '', '| Écrit | Lu | Police |', '|---|---|---|', ...rows
   ]
   fs.writeFileSync(path.join(outDir, 'hwr-bench.md'), table.join('\n') + '\n')
   console.log(table.slice(0, 30).join('\n'))
   check('normal: CER ≤ 12 %', stats.normal.cer <= 12, stats.normal.cer.toFixed(1))
   check('tilted ±8°: CER ≤ 15 %', stats['penchée +8°'].cer <= 15 && stats['penchée -8°'].cer <= 15)
+  check('parentheses recognized (≥ 85 %)', parOk >= parTotal * 0.85, `${parOk}/${parTotal}`)
   check('drawings kept as ink (≥ 90 %)', kept >= bench.drawings.length * 0.9, `${kept}/${bench.drawings.length}`)
   check('underline stays ink, text converted', compo[0][3] >= 1 && compo[0][1].length > 0)
   check('two lines → two texts', compo[2][1].includes(' / '))
