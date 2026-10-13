@@ -34,7 +34,7 @@ function inkDiff(a, b) {
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
   const b64 = fs.readFileSync(path.join(root, 'tests/fixtures/libreoffice.pdf')).toString('base64')
-  await win.evaluate((b) => { window.__feuillet.welcome?.hide(); window.confirm = () => true; return window.__feuillet.importer.open([{ name: 'doc.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]) }, b64)
+  await win.evaluate((b) => { (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()); window.confirm = () => true; return window.__feuillet.importer.open([{ name: 'doc.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]) }, b64)
   const shot = async (name) => {
     const png = await win.evaluate(async () => (await window.__feuillet.exporter.raster(window.__feuillet.editor.doc.pages[0], 150)).toDataURL('image/png').split(',')[1])
     fs.writeFileSync(path.join(outDir, name), Buffer.from(png, 'base64'))

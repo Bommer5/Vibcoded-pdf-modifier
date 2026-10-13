@@ -15,7 +15,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
   // Réglages connus (ils sont mémorisés d'une session à l'autre).
-  await win.evaluate(() => { window.__feuillet.welcome?.hide(); window.__feuillet.settings.set('penWidth', 2.5) })
+  await win.evaluate(() => { (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()); window.__feuillet.settings.set('penWidth', 2.5) })
   const box = await win.locator('#workspace').boundingBox()
   // Coordonnées écran d'un point du document
   const screen = async (x, y) => {

@@ -1,5 +1,6 @@
 import { ActiveSelection, Group, type FabricObject, type TPointerEvent } from 'fabric'
 import { isChart } from '../charts/chart-object'
+import { isGraph } from '../graph/graph-object'
 import type { Editor } from '../core/editor'
 import { isPageLayer } from '../core/props'
 import { Table } from '../objects/table'
@@ -19,6 +20,7 @@ export function describe(o: Pickable): { name: string; icon: IconName } {
   if (o.shape) return { name: SHAPE_NAMES[o.shape] ?? 'Forme', icon: 'shape' }
   if ((o as FabricObject) instanceof Table) return { name: 'Tableau', icon: 'table' }
   if (isChart(o as FabricObject)) return { name: 'Graphique', icon: 'chart' }
+  if (isGraph(o as FabricObject)) return { name: 'Graphe', icon: 'graph' }
   if (typeof o.text === 'string') {
     const t = o.text.replace(/\s+/g, ' ').trim()
     return { name: `Texte « ${t.length > 24 ? `${t.slice(0, 24)}…` : t} »`, icon: 'text' }

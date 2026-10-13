@@ -18,7 +18,7 @@ fs.mkdirSync(outDir, { recursive: true })
   const app = await _electron.launch({ executablePath: path.join(root, 'node_modules/electron/dist/electron'), args: [root, '--no-sandbox'] })
   const win = await app.firstWindow()
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate(() => window.__feuillet.welcome?.hide())
+  await win.evaluate(() => (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()))
   await win.evaluate(() => (window.confirm = () => true))
   const mem = async () => {
     const metrics = await app.evaluate(({ app }) => app.getAppMetrics())

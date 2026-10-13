@@ -1,6 +1,8 @@
 import { ActiveSelection, Group, type FabricObject, type IText } from 'fabric'
 import { editChart } from '../charts/chart-dialog'
 import { chartObject, isChart } from '../charts/chart-object'
+import { editGraph } from '../graph/graph-dialog'
+import { graphObject, isGraph } from '../graph/graph-object'
 import type { Editor } from '../core/editor'
 import { ShapedText } from '../objects/shaped-text'
 import { Table, type CellAlign } from '../objects/table'
@@ -55,6 +57,7 @@ export class PropertiesPanel {
     const texts = sel.filter(isText)
     const tables = sel.filter((o): o is Table => o instanceof Table)
     const chart = sel.length === 1 && isChart(sel[0]) ? sel[0] : null
+    const graph = sel.length === 1 && isGraph(sel[0]) ? sel[0] : null
 
     if (texts.length) this.textSection(texts)
     if (tables.length === 1) this.tableSection(tables[0])
@@ -62,7 +65,11 @@ export class PropertiesPanel {
       this.section('Graphique')
       this.button('Modifier le graphique…', () => this.editChart(chart), 'primary wide')
     }
-    const drawables = sel.filter((o) => !isText(o) && !(o instanceof Table) && !isChart(o) && !(o as { assetId?: string }).assetId)
+    if (graph) {
+      this.section('Graphe')
+      this.button('Modifier le graphe…', () => this.editGraph(graph), 'primary wide')
+    }
+    const drawables = sel.filter((o) => !isText(o) && !(o instanceof Table) && !isChart(o) && !isGraph(o) && !(o as { assetId?: string }).assetId)
     if (drawables.length) this.strokeSection(drawables)
     this.section('Calque')
     this.slider('Opacité', 0, 100, Math.round((sel[0].opacity ?? 1) * 100), (v) => this.apply(sel, (o) => o.set({ opacity: v / 100 })), '%')
@@ -339,6 +346,24 @@ export class PropertiesPanel {
     this.ed.canvas.requestRenderAll()
     this.ed.history.record()
     this.render()
+  }
+
+  private async editGraph(graph: FabricObject & { graph?: import('../graph/graph').GraphSpec }): Promise<void> {
+    const spec = await editGraph(graph.graph!)
+    if (!spec) return
+    const next = await graphObject(spec)
+    const c = this.ed.canvas
+    // Même échelle qu'avant (un nœud garde sa taille), centré au même endroit
+    const k = graph.getScaledWidth() / Math.max(1, graph.width)
+    next.set({ angle: graph.angle, opacity: graph.opacity, scaleX: k, scaleY: k })
+    next.setPositionByOrigin(graph.getCenterPoint(), 'center', 'center')
+    await this.ed.history.transaction(() => {
+      const index = c.getObjects().indexOf(graph)
+      c.remove(graph)
+      c.insertAt(index, next)
+      c.setActiveObject(next)
+    })
+    c.requestRenderAll()
   }
 
   private async editChart(chart: FabricObject & { chart?: import('../charts/chart').ChartSpec }): Promise<void> {

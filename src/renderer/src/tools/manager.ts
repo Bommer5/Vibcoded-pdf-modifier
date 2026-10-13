@@ -8,7 +8,7 @@ import { editTextAt } from '../pdf/edit-text'
 import { editShapeAt } from '../pdf/edit-shape'
 import { hasNative, nativeCountInside, nativeRecognize, type Recognized } from '../native/core'
 import type { TextSelection } from '../ui/text-selection'
-import { buildInk, eraseInk, nearObject, scenePoints, type InkObject, type InkPoint } from './ink'
+import { buildInk, eraseInk, hasRealPressure, nearObject, scenePoints, type InkData, type InkObject, type InkPoint } from './ink'
 import { dashArray, settings, type PenButtonAction, type ShapeKind } from './settings'
 
 export type Tool = 'select' | 'lasso' | 'textselect' | 'edittext' | 'pen' | 'highlighter' | 'eraser' | 'shape' | 'text' | 'table' | 'hand'
@@ -98,6 +98,9 @@ export class ToolManager {
     // Clic droit (bouton du stylet) : Fabric transmet l'évènement souris, sans « stylet ».
     // On garde l'évènement pointeur d'origine pour reconnaître le stylet et ses boutons.
     c.upperCanvasEl.addEventListener('pointerdown', (e) => (this.lastDown = e), { capture: true })
+    // Pendant un geste, Fabric ne transmet que des « mousemove » : ni pression du stylet, ni
+    // points intermédiaires. On garde le dernier évènement pointeur (il arrive juste avant).
+    window.addEventListener('pointermove', (e) => (this.lastPointerMove = e), { capture: true, passive: true })
     c.on('mouse:up', () => this.up())
     c.on('mouse:out', () => this.tool === 'eraser' && !this.stroke && this.clearTop())
     c.on('text:editing:exited', ({ target }) => {
@@ -166,10 +169,18 @@ export class ToolManager {
   // --- Gestes --------------------------------------------------------------------
 
   private lastDown: PointerEvent | null = null
+  private lastPointerMove: PointerEvent | null = null
+
+  /**
+   * L'évènement pointeur d'origine (stylet, pression, points intermédiaires) d'un évènement
+   * Fabric. Coordonnées comparées à 2 px près : celles d'un évènement souris sont arrondies.
+   */
+  private pointerOf(raw: PointerEvent, from: PointerEvent | null): PointerEvent {
+    return !raw.pointerType && from && raw.timeStamp - from.timeStamp < 100 && Math.abs(raw.clientX - from.clientX) < 2 && Math.abs(raw.clientY - from.clientY) < 2 ? from : raw
+  }
 
   private down(o: TPointerEventInfo): void {
-    const raw = o.e as PointerEvent
-    const e = !raw.pointerType && this.lastDown && raw.timeStamp - this.lastDown.timeStamp < 100 ? this.lastDown : raw
+    const e = this.pointerOf(o.e as PointerEvent, this.lastDown)
     if (e.pointerType === 'touch' && this.penSeen) return
     const p = o.scenePoint
     // Boutons du stylet (réglables dans Préférences > Stylet et tablette), le temps du geste :
@@ -247,7 +258,7 @@ export class ToolManager {
   }
 
   private move(o: TPointerEventInfo): void {
-    const e = o.e as PointerEvent
+    const e = this.pointerOf(o.e as PointerEvent, this.lastPointerMove)
     if (!this.stroke) {
       // Hors des pages, les outils d'écriture montrent un curseur « interdit ».
       if (['pen', 'highlighter', 'shape', 'text', 'table'].includes(this.tool) && !o.target) {
@@ -383,7 +394,7 @@ export class ToolManager {
       size: s.tool === 'pen' ? v.penWidth : v.highlighterWidth,
       color: s.tool === 'pen' ? v.penColor : v.highlighterColor,
       style: s.tool === 'pen' ? v.penStyle : 'solid',
-      pressure: s.tool === 'pen' && v.pressure
+      ...pressureStyle(s.tool === 'pen', pts)
     })
     this.ed.add(ink)
     if (s.tool === 'pen') this.onInk?.(ink)
@@ -397,7 +408,7 @@ export class ToolManager {
       size: tool === 'pen' ? v.penWidth : v.highlighterWidth,
       color: tool === 'pen' ? v.penColor : v.highlighterColor,
       style: tool === 'pen' ? v.penStyle : 'solid',
-      pressure: tool === 'pen' && v.pressure
+      ...pressureStyle(tool === 'pen', pts)
     })
   }
 
@@ -515,7 +526,7 @@ export class ToolManager {
       size: s.tool === 'pen' ? v.penWidth : v.highlighterWidth,
       color: s.tool === 'pen' ? v.penColor : v.highlighterColor,
       style: s.tool === 'pen' ? v.penStyle : 'solid',
-      pressure: s.tool === 'pen' && v.pressure
+      ...pressureStyle(s.tool === 'pen', pts)
     })
     // Pas d'image en cache pour l'aperçu : hors du canevas, Fabric la calculerait au zoom 1
     // puis l'agrandirait (trait flou pendant l'écriture, net seulement au lâcher).
@@ -808,6 +819,15 @@ function pathLength(pts: InkPoint[]): number {
   let len = 0
   for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
   return len
+}
+
+/** Réglages de pression d'un trait : vraie pression du stylet, sinon simulée (vitesse) si voulu. */
+function pressureStyle(pen: boolean, pts: InkPoint[]): Pick<InkData, 'pressure' | 'simulate' | 'thinning'> {
+  const v = settings.value
+  if (!pen || !v.pressure) return { pressure: false }
+  const real = hasRealPressure(pts)
+  if (!real && !v.pressureSim) return { pressure: false }
+  return { pressure: true, simulate: !real, thinning: real ? v.pressureStrength : Math.min(0.5, v.pressureStrength) }
 }
 
 function pressureOf(e: PointerEvent | MouseEvent | TouchEvent): number {

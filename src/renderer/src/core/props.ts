@@ -35,6 +35,7 @@ FabricObject.customProperties = [
   'ink',
   'shape',
   'chart',
+  'graph',
   'markup',
   'pdfEdit',
   'pdfFonts',

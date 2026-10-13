@@ -55,7 +55,7 @@ function rot(s, deg) {
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate(() => { window.__feuillet.welcome?.hide(); window.confirm = () => true })
+  await win.evaluate(() => { (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()); window.confirm = () => true })
 
   /** Pose des groupes de traits sur la page, convertit, renvoie les textes créés et l'encre restante. */
   const run = (groups, manual = false) => win.evaluate(async ([groups, manual]) => {

@@ -34,7 +34,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
   await win.evaluate(() => {
-    window.__feuillet.welcome?.hide()
+    (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove())
     window.confirm = () => true
     localStorage.removeItem('feuillet.pdfInsert')
   })

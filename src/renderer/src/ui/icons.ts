@@ -1,6 +1,6 @@
 import {
   BringToFront, ChartColumn, ClipboardPaste, Crop, Copy, CopyPlus, Eraser, FilePenLine, Group, Hand, Highlighter, Image, Lasso, Layers,
-  Circle, Lightbulb, Lock, LockOpen, Menu, MousePointer2, MoveUpRight, PaintBucket, Slash, Square, Triangle, PanelLeft, PenLine, Plus, Redo2, ScanText, Scissors, Search, SendToBack, Settings, Shapes,
+  Circle, Lightbulb, Lock, LockOpen, Menu, MousePointer2, Share2, MoveUpRight, PaintBucket, Slash, Square, Triangle, PanelLeft, PenLine, Plus, Redo2, ScanText, Scissors, Search, SendToBack, Settings, Shapes,
   SlidersHorizontal, Table, Trash, Type, Undo2, Ungroup, ZoomIn, ZoomOut, type IconNode
 } from 'lucide'
 
@@ -22,6 +22,7 @@ const ICONS = {
   text: Type,
   table: Table,
   chart: ChartColumn,
+  graph: Share2,
   image: Image,
   crop: Crop,
   undo: Undo2,

@@ -13,6 +13,10 @@ export interface ToolSettings {
   penStyle: LineStyle
   /** Épaisseur variable selon la pression du stylet. */
   pressure: boolean
+  /** Effet de la pression (épaisseur) : 0,2 léger … 0,9 très marqué. */
+  pressureStrength: number
+  /** Sans pression transmise (souris, pilote sans pression) : épaisseur selon la vitesse. */
+  pressureSim: boolean
   highlighterColor: string
   highlighterWidth: number
   /** Rond / rectangle / triangle dessinés à main levée rendus parfaits en tenant le stylet immobile. */
@@ -53,6 +57,8 @@ const DEFAULTS: ToolSettings = {
   penWidth: 2.5,
   penStyle: 'solid',
   pressure: true,
+  pressureStrength: 0.65,
+  pressureSim: true,
   highlighterColor: '#ffe600',
   highlighterWidth: 14,
   highlightSnap: true,

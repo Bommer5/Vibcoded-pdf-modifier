@@ -73,6 +73,12 @@ export function openPreferences(shortcuts: ShortcutManager): void {
           </select>
         </label>
         <label class="check"><input type="checkbox" name="pressure" /> Trait plus épais quand on appuie plus fort (pression)</label>
+        <label>Effet de la pression <input type="range" name="pressureStrength" min="0.2" max="0.9" step="0.05" /></label>
+        <label class="check"><input type="checkbox" name="pressureSim" /> Si le stylet n'envoie pas de pression : épaisseur selon la vitesse</label>
+        <div class="pressure-test" tabindex="0">
+          <canvas width="440" height="90"></canvas>
+          <div class="pressure-info"><span class="pressure-meter"><i></i></span><span class="pressure-text">Écrivez ici pour tester la pression.</span></div>
+        </div>
         <h3 class="prefs-sub">Écriture → texte</h3>
         <label class="check"><input type="checkbox" name="hwr" /> Convertir ce que j'écris au stylo en texte (lettres, chiffres, symboles de maths ; les traits et dessins restent)</label>
         <label>Pause avant la conversion
@@ -176,6 +182,13 @@ export function openPreferences(shortcuts: ShortcutManager): void {
     box.addEventListener('change', () => settings.set(key, box.checked))
   }
   bind('pressure', 'pressure')
+  const strength = $<HTMLInputElement>('[name=pressureStrength]')
+  strength.value = String(settings.value.pressureStrength)
+  strength.addEventListener('input', () => settings.set('pressureStrength', Number(strength.value)))
+  const sim = $<HTMLInputElement>('[name=pressureSim]')
+  sim.checked = settings.value.pressureSim
+  sim.addEventListener('change', () => settings.set('pressureSim', sim.checked))
+  pressureTest($<HTMLElement>('.pressure-test'))
 
   // Stylet et tablette
   const hwrBox = $<HTMLInputElement>('[name=hwr]')
@@ -238,4 +251,78 @@ export function openPreferences(shortcuts: ShortcutManager): void {
 
   dialog.showModal()
   dialog.addEventListener('close', () => dialog.remove())
+}
+
+/**
+ * Zone d'essai de la pression : trace avec la vraie épaisseur et dit ce que l'appareil envoie.
+ * Si la tablette arrive comme une souris, la pression n'existe pas pour l'application : on
+ * explique quoi régler (Windows Ink, session Linux…).
+ */
+function pressureTest(box: HTMLElement): void {
+  const canvas = box.querySelector('canvas')!
+  const meter = box.querySelector<HTMLElement>('.pressure-meter i')!
+  const text = box.querySelector<HTMLElement>('.pressure-text')!
+  const ctx = canvas.getContext('2d')!
+  let last: { x: number; y: number; w: number } | null = null
+  let lo = 1, hi = 0
+  let kind = ''
+  let down = -1
+  const at = (e: PointerEvent): { x: number; y: number } => {
+    const r = canvas.getBoundingClientRect()
+    return { x: ((e.clientX - r.left) / r.width) * canvas.width, y: ((e.clientY - r.top) / r.height) * canvas.height }
+  }
+  const draw = (e: PointerEvent): void => {
+    const p = e.pointerType === 'pen' ? e.pressure : 0.5
+    lo = Math.min(lo, p)
+    hi = Math.max(hi, p)
+    meter.style.width = `${Math.round(p * 100)}%`
+    const v = settings.value
+    const w = Math.max(0.6, 5 * (v.pressure && e.pointerType === 'pen' ? 1 - v.pressureStrength * (1 - p * 1.6) : 1))
+    const q = at(e)
+    ctx.strokeStyle = getComputedStyle(box).color
+    ctx.lineCap = 'round'
+    if (last) {
+      ctx.lineWidth = (last.w + w) / 2
+      ctx.beginPath()
+      ctx.moveTo(last.x, last.y)
+      ctx.lineTo(q.x, q.y)
+      ctx.stroke()
+    }
+    last = { ...q, w }
+    text.textContent = kind === 'pen' ? `Stylet · pression ${Math.round(p * 100)} %` : kind === 'touch' ? 'Doigt : pas de pression' : 'Souris : pas de pression'
+  }
+  box.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    try {
+      box.setPointerCapture(e.pointerId)
+    } catch {
+      // pointeur déjà relâché : sans importance
+    }
+    down = e.pointerId
+    kind = e.pointerType
+    lo = 1
+    hi = 0
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    last = null
+    draw(e)
+  })
+  box.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== down) return
+    const evs = e.getCoalescedEvents?.() ?? []
+    for (const ev of evs.length ? evs : [e]) draw(ev)
+  })
+  box.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== down) return
+    down = -1
+    last = null
+    if (kind === 'pen') {
+      text.textContent = hi - lo > 0.04
+        ? `Pression reçue (de ${Math.round(lo * 100)} à ${Math.round(hi * 100)} %).`
+        : 'Le stylet est reconnu mais n’envoie pas de pression : vérifiez le pilote de la tablette (pression activée, « Windows Ink » sous Windows).'
+    } else if (kind === 'mouse') {
+      text.textContent = /Windows/.test(navigator.userAgent)
+        ? 'Votre stylet arrive comme une souris : activez « Windows Ink » dans le pilote de la tablette (Wacom, Huion, XP-Pen…), puis relancez Feuillet.'
+        : 'Votre stylet arrive comme une souris : sous Linux, essayez l’autre type de session (Wayland ou X11) ou le pilote du fabricant. En attendant, l’épaisseur suit la vitesse.'
+    }
+  })
 }

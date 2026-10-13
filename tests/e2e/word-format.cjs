@@ -16,7 +16,7 @@ const NB = ' '
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate(() => window.__feuillet.welcome?.hide())
+  await win.evaluate(() => (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()))
   const box = await win.locator('#workspace').boundingBox()
   const at = (x, y) => [box.x + x, box.y + y]
   const obj = () => win.evaluate(() => {

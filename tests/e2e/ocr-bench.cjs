@@ -68,7 +68,7 @@ const cer = (truth, got) => (100 * levenshtein(norm(truth), norm(got))) / Math.m
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate(() => { window.__feuillet.welcome?.hide(); window.confirm = () => true })
+  await win.evaluate(() => { (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()); window.confirm = () => true })
 
   /** Page A4 « scannée » (dans le navigateur, avec les polices de l'application). */
   const makeScan = (spec) => win.evaluate(async (spec) => {

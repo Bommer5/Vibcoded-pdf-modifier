@@ -14,7 +14,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   const errors = []
   win.on('pageerror', (e) => errors.push(String(e)))
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate(() => window.__feuillet.welcome?.hide())
+  await win.evaluate(() => (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()))
   // Imprimante simulée : chaque impression produit un PDF (même moteur que l'impression réelle).
   await app.evaluate(({ app }) => {
     app.on('web-contents-created', (_e, wc) => {

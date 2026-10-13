@@ -15,6 +15,20 @@ export interface InkData {
   color: string
   style: LineStyle
   pressure: boolean
+  /** Le stylet n'envoyait pas de pression (souris, pilote) : épaisseur selon la vitesse. */
+  simulate?: boolean
+  /** Effet de la pression sur l'épaisseur (0 : aucun, 0,9 : très marqué). */
+  thinning?: number
+}
+
+/** Pression vraiment transmise par l'appareil (elle varie le long du trait). */
+export function hasRealPressure(points: InkPoint[]): boolean {
+  let lo = 1, hi = 0
+  for (const p of points) {
+    lo = Math.min(lo, p[2])
+    hi = Math.max(hi, p[2])
+  }
+  return hi - lo > 0.04
 }
 
 export type InkObject = Path & Obj & { ink?: InkData }
@@ -30,10 +44,10 @@ export function buildInk(data: InkData): InkObject {
   if (tool === 'pen' && style === 'solid') {
     const outline = getStroke(points, {
       size: size * 1.6,
-      thinning: data.pressure ? 0.55 : 0,
+      thinning: data.pressure ? (data.thinning ?? 0.55) : 0,
       smoothing: 0.5,
       streamline: 0.45,
-      simulatePressure: false,
+      simulatePressure: data.pressure && !!data.simulate,
       last: true
     })
     path = new Path(outlineToSvg(outline.length > 2 ? outline : dot(points[0], size)), {

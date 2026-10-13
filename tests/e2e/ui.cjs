@@ -15,7 +15,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate(() => { window.__feuillet.welcome?.hide(); Object.keys(localStorage).filter((k) => k.startsWith('feuillet.tips.')).forEach((k) => localStorage.removeItem(k)) })
+  await win.evaluate(() => { (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()); Object.keys(localStorage).filter((k) => k.startsWith('feuillet.tips.')).forEach((k) => localStorage.removeItem(k)) })
   await win.keyboard.press('KeyV')
 
   // 1. Barre d'outils : les outils courants d'abord, chacun avec son nom
@@ -237,13 +237,29 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   const pb = await win.locator('dialog.prefs .pen-test').boundingBox()
   await win.evaluate(([x, y]) => document.querySelector('.pen-test').dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'pen', button: 2, buttons: 2, clientX: x, clientY: y, bubbles: true })), [pb.x + 20, pb.y + 10])
   check('test area names the button and its action', /Bouton 1 → Gomme/.test(await win.locator('dialog.prefs .pen-test').innerText()), await win.locator('dialog.prefs .pen-test').innerText())
+  // Zone d'essai de la pression : dit si la pression arrive, sinon quoi régler
+  const pressureText = await win.evaluate(() => {
+    const box = document.querySelector('.pressure-test')
+    const r = box.querySelector('canvas').getBoundingClientRect()
+    const ev = (type, i, pointerType, pressure) => box.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType, pressure, buttons: type === 'pointerup' ? 0 : 1, clientX: r.left + 20 + i * 20, clientY: r.top + 40, bubbles: true }))
+    const out = []
+    for (const [kind, f] of [['pen', (i) => 0.1 + i * 0.1], ['pen', () => 0.5], ['mouse', () => 0.5]]) {
+      ev('pointerdown', 0, kind, f(0))
+      for (let i = 1; i < 8; i++) ev('pointermove', i, kind, f(i))
+      ev('pointerup', 8, kind, 0)
+      out.push(box.querySelector('.pressure-text').textContent)
+    }
+    return out
+  })
+  check('pressure test: reports the pressure range', /Pression reçue/.test(pressureText[0]), pressureText[0])
+  check('pressure test: explains a stylus without pressure / seen as a mouse', /pilote/.test(pressureText[1]) && /comme une souris/.test(pressureText[2]), pressureText.slice(1).join(' | '))
   await win.click('dialog.prefs button[value=ok]')
 
   // Gestes d'un vrai stylet (simulés par Chromium) : un trait, puis le bouton 1 réglé sur
   // Gomme l'efface ; réglé sur « Déplacer la vue », il déplace la vue.
   const cdp = await win.context().newCDPSession(win)
   const pen = async (pts, button = 'left', buttons = 1) => {
-    const ev = (type, [x, y], b, btn) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: btn, buttons: b, pointerType: 'pen', force: 0.5, clickCount: type === 'mouseMoved' ? 0 : 1 })
+    const ev = (type, [x, y, force = 0.5], b, btn) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: btn, buttons: b, pointerType: 'pen', force, clickCount: type === 'mouseMoved' ? 0 : 1 })
     await ev('mouseMoved', pts[0], 0, 'none')
     await ev('mousePressed', pts[0], buttons, button)
     for (const p of pts.slice(1)) await ev('mouseMoved', p, buttons, button)
@@ -255,6 +271,20 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   await pen(Array.from({ length: 12 }, (_, i) => [cx - 100 + i * 18, cy + 60]))
   const ink1 = await inkCount()
   check('stylus tip writes', ink1 === ink0 + 1, `${ink0} → ${ink1}`)
+  // Pression : appui léger → trait fin, appui fort → trait épais (vraie pression, pas simulée)
+  const lastInk = () => win.evaluate(() => { const o = window.__feuillet.editor.doc.content.filter((x) => x.ink).at(-1); const ps = o.ink.points.map((p) => p[2]); return { ps: ps.map((p) => +p.toFixed(2)).join(' '), pressure: o.ink.pressure, simulate: !!o.ink.simulate, h: o.height, lo: Math.min(...ps), hi: Math.max(...ps) } })
+  await pen(Array.from({ length: 14 }, (_, i) => [cx - 100 + i * 14, cy + 100, 0.1 + i * 0.015]))
+  const light = await lastInk()
+  await pen(Array.from({ length: 14 }, (_, i) => [cx - 100 + i * 14, cy + 140, 0.75 + i * 0.015]))
+  const heavy = await lastInk()
+  check('stylus pressure is captured', light.pressure && !light.simulate && light.hi - light.lo > 0.1, JSON.stringify(light))
+  check('pressing harder draws a thicker line', heavy.h > light.h * 1.5, `${light.h.toFixed(2)} → ${heavy.h.toFixed(2)}`)
+  // Souris (ou stylet sans pression) : épaisseur selon la vitesse
+  await win.mouse.move(cx - 100, cy + 180); await win.mouse.down()
+  for (let i = 1; i <= 10; i++) await win.mouse.move(cx - 100 + i * 20, cy + 180)
+  await win.mouse.up(); await win.waitForTimeout(150)
+  check('no pressure from the device → speed-based width', (await lastInk()).simulate)
+  for (let k = 0; k < 3; k++) await win.keyboard.press('Control+z')
   await pen(Array.from({ length: 10 }, (_, i) => [cx - 10, cy + 20 + i * 8]), 'right', 2)
   const ink2 = await inkCount()
   check('stylus button 1 set to Eraser erases (pen stays the tool)', ink2 !== ink1 && (await win.evaluate(() => window.__feuillet.tools.tool)) === 'pen', `${ink1} → ${ink2}`)

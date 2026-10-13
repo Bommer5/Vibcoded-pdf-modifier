@@ -15,6 +15,9 @@ import { platform } from './platform'
 import { defaultChart } from './charts/chart'
 import { editChart } from './charts/chart-dialog'
 import { chartObject, isChart } from './charts/chart-object'
+import { applyText, crossings, defaultGraph, layout as layoutGraph, renderGraph } from './graph/graph'
+import { editGraph } from './graph/graph-dialog'
+import { graphObject, isGraph } from './graph/graph-object'
 import { TableEditor } from './objects/table-editor'
 import { penActionOf, ToolManager, type Tool } from './tools/manager'
 import { HandwritingConverter } from './hwr/convert'
@@ -205,7 +208,7 @@ canvas.on('mouse:dblclick', ({ target, scenePoint }) => {
     void editTextAt(editor, scenePoint)
     return
   }
-  if (target && isChart(target)) {
+  if (target && (isChart(target) || isGraph(target))) {
     canvas.setActiveObject(target)
     document.querySelector<HTMLButtonElement>('.properties button.primary')?.click()
   }
@@ -314,6 +317,20 @@ const actions: Record<string, () => void | Promise<void>> = {
     if (!spec) return
     const obj = await chartObject(spec)
     const page = doc.currentPage() ?? doc.pages[0]
+    obj.setPositionByOrigin(new Point(page.left + page.width / 2, page.top + page.height / 3), 'center', 'center')
+    await history.transaction(() => editor.add(obj))
+    setTool('select')
+    canvas.setActiveObject(obj)
+    canvas.requestRenderAll()
+  },
+  graph: async () => {
+    const spec = await editGraph(defaultGraph())
+    if (!spec) return
+    const obj = await graphObject(spec)
+    const page = doc.currentPage() ?? doc.pages[0]
+    // Pas plus large que la page (marges comprises)
+    const k = Math.min(1, (page.width * 0.8) / obj.width, (page.height * 0.6) / obj.height)
+    obj.scale(k)
     obj.setPositionByOrigin(new Point(page.left + page.width / 2, page.top + page.height / 3), 'center', 'center')
     await history.transaction(() => editor.add(obj))
     setTool('select')
@@ -489,6 +506,7 @@ const menus: Menu[] = [
       { label: 'Zone de texte', action: 'tool:text', shortcut: 'tool.text', hint: 'Cliquez, glissez, ou entourez une zone à main levée' },
       { label: 'Tableau', action: 'tool:table' },
       { label: 'Graphique…', action: 'chart' },
+      { label: 'Graphe (nœuds et arêtes)…', action: 'graph', hint: 'Nœuds nommés, arêtes, poids ; rangé avec le moins de croisements' },
       { label: 'Forme', action: 'tool:shape', shortcut: 'tool.shape' }
     ]
   },
@@ -633,4 +651,4 @@ const make = {
   /** Trait de stylo à partir de points (coordonnées document) : tests de l'écriture → texte. */
   ink: (points: [number, number][], size = 2, color = '#1b1b1f') => buildInk({ tool: 'pen', points: points.map(([x, y]) => [x, y, 0.5]), size, color, style: 'solid', pressure: false })
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, hwrTools: { segment, inkImage, handwriting }, openPreferences: () => openPreferences(shortcuts) } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, hwr, hwrTools: { segment, inkImage, handwriting }, graphTools: { applyText, crossings, layout: layoutGraph, renderGraph, defaultGraph }, openPreferences: () => openPreferences(shortcuts) } })

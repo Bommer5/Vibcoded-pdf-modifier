@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { integrateAppImage } from './linux-integration'
 import { convertWithOffice, findSoffice } from './office'
 
 let mainWindow: BrowserWindow | null = null
@@ -33,8 +35,15 @@ async function addRecent(path: string): Promise<void> {
   await mkdir(app.getPath('userData'), { recursive: true })
   await writeFile(RECENT(), JSON.stringify(list))
 }
+/** Arguments de la ligne de commande qui sont des fichiers existants (chemins relatifs compris). */
+function filesIn(args: string[], cwd: string): string[] {
+  return args
+    .filter((a) => !a.startsWith('-'))
+    .map((a) => (a.startsWith('file://') ? fileURLToPath(a) : resolve(cwd, a)))
+    .filter((p) => extname(p) && existsSync(p) && statSync(p).isFile())
+}
 /** Fichiers passés en argument (« Ouvrir avec… ») en attente de l'interface. */
-let pendingPaths: string[] = process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-') && extname(a))
+let pendingPaths: string[] = filesIn(process.argv.slice(app.isPackaged ? 1 : 2), process.cwd())
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -284,8 +293,8 @@ if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform-h
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', (_e, argv) => {
-    const paths = argv.slice(1).filter((a) => !a.startsWith('-') && extname(a))
+  app.on('second-instance', (_e, argv, cwd) => {
+    const paths = filesIn(argv.slice(1), cwd)
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
@@ -294,6 +303,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     createWindow()
+    void integrateAppImage(process.resourcesPath).catch((e) => console.warn('Intégration au bureau impossible', e))
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

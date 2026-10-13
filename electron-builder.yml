@@ -9,12 +9,105 @@ files:
   - package.json
   - "!node_modules/**"
 asar: true
+# « Ouvrir avec Feuillet ». PDF et formats propres à Feuillet : associés partout.
 fileAssociations:
   - ext: pdf
-    name: PDF Document
+    name: PDF
+    mimeType: application/pdf
+    role: Editor
+  - ext: feuillet
+    name: Projet Feuillet
+    mimeType: application/x-feuillet
+    role: Editor
+  - ext: xopp
+    name: Xournal++
+    mimeType: application/x-xopp
+    role: Editor
+  - ext: xoj
+    name: Xournal
+    mimeType: application/x-xojpp
     role: Editor
 linux:
   target: [AppImage, deb]
+  # Linux : Feuillet apparaît dans « Ouvrir avec » pour tous ces types, sans changer
+  # l'application par défaut (l'AppImage s'inscrit elle-même au lancement).
+  fileAssociations:
+    - ext: pdf
+      name: PDF
+      mimeType: application/pdf
+      role: Editor
+    - ext: feuillet
+      name: Projet Feuillet
+      mimeType: application/x-feuillet
+      role: Editor
+    - ext: xopp
+      name: Xournal++
+      mimeType: application/x-xopp
+      role: Editor
+    - ext: xoj
+      name: Xournal
+      mimeType: application/x-xojpp
+      role: Editor
+    - ext: png
+      name: Image PNG
+      mimeType: image/png
+      role: Editor
+    - ext: jpg
+      name: Image JPEG
+      mimeType: image/jpeg
+      role: Editor
+    - ext: jpeg
+      name: Image JPEG
+      mimeType: image/jpeg
+      role: Editor
+    - ext: webp
+      name: Image WebP
+      mimeType: image/webp
+      role: Editor
+    - ext: gif
+      name: Image GIF
+      mimeType: image/gif
+      role: Editor
+    - ext: bmp
+      name: Image BMP
+      mimeType: image/bmp
+      role: Editor
+    - ext: tif
+      name: Image TIFF
+      mimeType: image/tiff
+      role: Editor
+    - ext: tiff
+      name: Image TIFF
+      mimeType: image/tiff
+      role: Editor
+    - ext: svg
+      name: Image SVG
+      mimeType: image/svg+xml
+      role: Editor
+    - ext: docx
+      name: Document Word
+      mimeType: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      role: Editor
+    - ext: doc
+      name: Document Word
+      mimeType: application/msword
+      role: Editor
+    - ext: odt
+      name: Document OpenDocument
+      mimeType: application/vnd.oasis.opendocument.text
+      role: Editor
+    - ext: rtf
+      name: Document RTF
+      mimeType: application/rtf
+      role: Editor
+    - ext: pptx
+      name: Présentation PowerPoint
+      mimeType: application/vnd.openxmlformats-officedocument.presentationml.presentation
+      role: Editor
+    - ext: odp
+      name: Présentation OpenDocument
+      mimeType: application/vnd.oasis.opendocument.presentation
+      role: Editor
   category: Graphics
   # Mainteneur du paquet .deb (obligatoire) : à remplacer par l'adresse de l'éditeur.
   maintainer: Feuillet <feuillet@users.noreply.github.com>
@@ -22,8 +115,14 @@ linux:
   desktop:
     entry:
       StartupWMClass: Feuillet
+extraResources:
+  # Icône utilisée par l'AppImage pour s'ajouter au menu des applications
+  - from: build/icon.png
+    to: icon.png
 win:
   target: [nsis, portable]
 nsis:
+  # Images et documents Office : ajoutés à « Ouvrir avec » sans devenir l'application par défaut
+  include: build/installer.nsh
   oneClick: false
   allowToChangeInstallationDirectory: true

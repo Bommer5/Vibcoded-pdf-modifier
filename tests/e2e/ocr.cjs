@@ -22,7 +22,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); if (process.env.DBG) console.log('>', m.type(), m.text().slice(0, 300)) })
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate((b) => { window.__feuillet.welcome?.hide(); window.confirm = () => true; return window.__feuillet.importer.open([{ name: 'scan.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]) }, scan)
+  await win.evaluate((b) => { (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()); window.confirm = () => true; return window.__feuillet.importer.open([{ name: 'scan.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]) }, scan)
   await win.waitForTimeout(500)
 
   // Pas de texte dans le fichier : l'outil le dit et propose l'OCR

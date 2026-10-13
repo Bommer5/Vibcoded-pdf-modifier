@@ -14,7 +14,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   win.on('pageerror', (e) => errors.push(String(e)))
   win.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   await win.waitForFunction(() => window.__feuillet)
-  await win.evaluate(() => window.__feuillet.welcome?.hide())
+  await win.evaluate(() => (window.__feuillet.welcome?.hide(), document.querySelector('.recovery-bar')?.remove()))
   const box = await win.locator('#workspace').boundingBox()
   const at = (x, y) => [box.x + x, box.y + y]
   const content = () => win.evaluate(() => window.__feuillet.editor.doc.content.map((o) => ({ type: o.type, ink: o.ink && { tool: o.ink.tool, n: o.ink.points.length, style: o.ink.style }, shape: o.shape, opacity: o.opacity, dash: o.strokeDashArray, text: o.text })))
