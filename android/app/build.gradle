@@ -7,8 +7,9 @@ android {
         applicationId "app.feuillet.editor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Numéro de build de la CI : chaque nouvelle version remplace l'ancienne (mise à jour)
+        versionCode((System.getenv("GITHUB_RUN_NUMBER") ?: "1") as int)
+        versionName "0.1.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +17,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Toujours la même clé de signature : Android n'accepte de mettre à jour une application
+    // que si la nouvelle version est signée par la même clé que celle déjà installée.
+    signingConfigs {
+        feuillet {
+            storeFile file('feuillet.keystore')
+            storePassword 'feuillet'
+            keyAlias 'feuillet'
+            keyPassword 'feuillet'
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.feuillet
+        }
         release {
+            signingConfig signingConfigs.feuillet
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
