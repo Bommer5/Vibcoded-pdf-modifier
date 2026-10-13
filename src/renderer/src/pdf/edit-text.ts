@@ -125,6 +125,23 @@ const familyKey = (f: PdfCharFont | undefined): string =>
  * chevauchent, à interligne régulier. On s'arrête à un retrait (nouveau paragraphe), à
  * un espace plus grand (espacement de paragraphe) ou après une ligne courte d'un texte justifié.
  */
+/**
+ * Élément de liste : la ligne commence par une étiquette — « (d) », « 2. », « a) », « iii) »,
+ * « • », « – » — suivie d'un blanc. Renvoie l'abscisse du texte qui suit l'étiquette (là où
+ * s'alignent les lignes suivantes, en retrait « suspendu »), ou null.
+ */
+function hangOf(l: Line): number | null {
+  const chars = l.chars
+  const text = chars.map((c) => c.c).join('')
+  const m = /^\s*(\(?(?:\d{1,3}|[a-zA-Z]|[ivxlcdmIVXLCDM]{1,6})[.)]|[•●▪◦‣∙·\-–—*➢►✓])/u.exec(text)
+  if (!m) return null
+  const end = [...m[0]].length
+  let j = end
+  while (j < chars.length && isSpace(chars[j])) j++
+  if (j >= chars.length || j === end && chars[j].x0 - chars[end - 1].x1 < l.size * 0.2) return null
+  return chars[j].x
+}
+
 function paragraph(lines: Line[], hit: Line, fonts: PdfCharFont[]): Line[] {
   const same = (l: Line): boolean =>
     l !== hit &&
@@ -143,7 +160,12 @@ function paragraph(lines: Line[], hit: Line, fonts: PdfCharFont[]): Line[] {
     if (!next) break
     const gap = next.baseline - last.baseline
     if (gap > last.size * 1.9 || (pitch && Math.abs(gap - pitch) > pitch * 0.15)) break
-    if (next.x0 > last.x0 + last.size * 0.6) break // retrait : nouveau paragraphe
+    if (hangOf(next) !== null) break // élément de liste suivant : « (e) », « 3. »…
+    // Retrait : nouveau paragraphe — sauf sous l'étiquette d'un élément de liste, où les lignes
+    // suivantes s'alignent sur le texte après l'étiquette (retrait suspendu, LaTeX, Word).
+    const hang = block.length === 1 ? hangOf(last) : null
+    const hanging = hang !== null && Math.abs(next.start - hang) < last.size * 0.6
+    if (next.x0 > last.x0 + last.size * 0.6 && !hanging) break
     if (justified() && last.x1 < right() - last.size * 1.5) break // ligne courte : fin de paragraphe
     pitch ||= gap
     block.push(next)
@@ -155,7 +177,10 @@ function paragraph(lines: Line[], hit: Line, fonts: PdfCharFont[]): Line[] {
     if (!prev) break
     const gap = first.baseline - prev.baseline
     if (gap > first.size * 1.9 || (pitch && Math.abs(gap - pitch) > pitch * 0.15)) break
-    if (first.x0 > prev.x0 + first.size * 0.6) break // la ligne du dessous est en retrait : elle commence le paragraphe
+    if (hangOf(first) !== null) break // une étiquette de liste commence le paragraphe
+    const prevHang = hangOf(prev)
+    const underLabel = prevHang !== null && Math.abs(first.start - prevHang) < first.size * 0.6
+    if (first.x0 > prev.x0 + first.size * 0.6 && !underLabel) break // la ligne du dessous est en retrait : elle commence le paragraphe
     const r = Math.max(right(), prev.x1)
     if (block.length >= 2 && prev.x1 < r - first.size * 1.5 && Math.abs(block[0].x1 - r) < 1.5) break // ligne courte au-dessus
     pitch ||= gap
@@ -344,7 +369,9 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
     for (let i = 0; i + 1 < l.chars.length; i++) {
       const a = l.chars[i]
       const b = l.chars[i + 1]
-      if (a.f < 0 || a.f !== b.f || isSpace(a) || a.size <= 0) continue
+      // Espace ajouté par PDFium entre deux mots : sa position est approximative, elle ne dit
+      // rien de la largeur de la lettre d'avant (« G », « n » isolés en italique…).
+      if (a.f < 0 || a.f !== b.f || isSpace(a) || isSpace(b) || a.size <= 0) continue
       if (!advances.has(a.f)) advances.set(a.f, new Map())
       const m = advances.get(a.f)!
       const u = a.c.codePointAt(0)!
@@ -410,11 +437,23 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
     const sep = i === lines.length - 1 ? '' : /[-‐]$/.test(t) ? '\n' : ' '
     parts.push({ text: t + sep, chars: l.chars })
   })
-  const text = parts.map((p2) => p2.text).join('')
-
+  // Élément de liste : l'étiquette est suivie d'espaces insécables (ni étirés par la
+  // justification, ni coupés) qui amènent le texte au même retrait que les lignes suivantes.
   const main = mode(lines.flatMap((l) => l.chars.filter((c) => !isSpace(c)).map((c) => c.f)))
   const mainFont = fonts[main]
   const size = mode(lines.map((l) => l.size))
+
+  // Élément de liste (« (d) ») : l'étiquette est suivie d'espaces insécables — ni étirés par
+  // la justification, ni coupés — jusqu'au retrait des lignes suivantes.
+  const hang = lines.length > 1 ? hangOf(lines[0]) : null
+  const label = hang !== null ? /^(\S+)([ \t\u00a0]+)/u.exec(parts[0].text) : null
+  if (hang !== null && label) {
+    const font = { fontStyle: mainFont?.italic ? 'italic' : 'normal', fontWeight: mainFont?.bold ? 'bold' : 'normal', fontSize: size, fontFamily: familyOf(main) } as Textbox
+    const nb = measure(font, '\u00a0') || size * 0.25
+    const n = Math.max(1, Math.round((hang - lines[0].start - measure(font, label[1])) / nb))
+    parts[0].text = label[1] + '\u00a0'.repeat(n) + parts[0].text.slice(label[0].length)
+  }
+  const text = parts.map((p2) => p2.text).join('')
   const color = mode(lines.flatMap((l) => l.chars.filter((c) => !isSpace(c)).map((c) => c.color)))
   const align = alignmentOf(lines)
   const body = lines.length > 1 ? lines.slice(1) : lines
@@ -472,7 +511,8 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
 
   // Contrôle : mêmes retours à la ligne que l'original ; sinon on ajuste l'espacement des
   // lettres (police de secours un peu plus large ou plus étroite), puis on fige les retours.
-  const sameBreaks = (): boolean => box._textLines.length === lines.length && box._textLines.every((l, i) => l.join('').trim() === lineText(lines[i]))
+  const flat = (t: string): string => t.replace(/\s+/gu, ' ').trim()
+  const sameBreaks = (): boolean => box._textLines.length === lines.length && box._textLines.every((l, i) => flat(l.join('')) === flat(lineText(lines[i])))
   if (!sameBreaks()) {
     const natural = lines.map((l, i) => (i === lines.length - 1 || align !== 'justify-left' ? l.x1 - l.x0 : 0))
     const measured = lines.map((l) => measure(box, lineText(l)))
@@ -486,7 +526,17 @@ export async function editTextAt(ed: Editor, p: Point): Promise<Textbox | null> 
     if (n) box.set({ charSpacing: Math.max(-200, Math.min(200, (diff / n / size) * 1000)) })
     box.initDimensions()
     if (!sameBreaks()) {
-      box.set({ text: lines.map(lineText).join('\n'), width: width + size * 2 })
+      // Retours figés aux mêmes endroits que l'original, sans perdre l'italique, le gras… :
+      // les styles sont repris caractère par caractère (même longueur de texte).
+      const styles = box.getSelectionStyles(0, box._text.length)
+      const chars = [...box._text]
+      let at = 0
+      for (const part of parts) {
+        at += [...part.text].length
+        if (part.text.endsWith(' ') && at - 1 < chars.length) chars[at - 1] = '\n'
+      }
+      box.set({ text: chars.join(''), width: width + size * 2, styles: {} })
+      styles.forEach((st, i) => Object.keys(st).length && box.setSelectionStyles(st, i, i + 1))
       box.initDimensions()
     }
   }

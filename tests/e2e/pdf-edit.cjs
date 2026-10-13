@@ -216,6 +216,39 @@ function inkDiff(a, b) {
     }
   }
 
+  // Liste à étiquettes (« (c) », « (d) ») en retrait suspendu, mots en italique, justifié
+  // (mise en page LaTeX / Word) : le paragraphe entier, sans la fin de l'élément précédent.
+  {
+    await win.evaluate(() => window.feuillet.setDirty(false))
+    const data = fs.readFileSync(path.join(root, 'tests/fixtures/list-items.pdf')).toString('base64')
+    await win.evaluate((b) => window.__feuillet.importer.open([{ name: 'liste.pdf', data: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) }]), data)
+    await win.waitForTimeout(600)
+    const at = await win.evaluate(async () => {
+      const { editor, pdfEngine } = window.__feuillet
+      const p = editor.doc.pages[0]
+      const r = await pdfEngine.chars(p.bg.assetId, 0)
+      const s = r.chars.map((x) => x.c).join('')
+      const c = r.chars[s.indexOf('que deux')]
+      editor.viewport.showRect(editor.doc.box(p))
+      return [c.x + 2, c.y - c.size * 0.3]
+    })
+    await win.evaluate(() => window.__feuillet.tools.set('edittext'))
+    await clickAt(at[0], at[1])
+    await win.waitForFunction(() => window.__feuillet.editor.canvas.getActiveObject()?.text !== undefined, null, { timeout: 8000 }).catch(() => {})
+    const item = await win.evaluate(() => {
+      const o = window.__feuillet.editor.canvas.getActiveObject()
+      if (!o) return null
+      const italic = []
+      for (const line of Object.values(o.styles)) for (const [i, st] of Object.entries(line)) if (st.fontStyle === 'italic') italic.push(o._unwrappedTextLines[0][i])
+      return { lines: o._textLines.map((l) => l.join('')), indent: o.firstIndent, italic: italic.join(''), cs: o.charSpacing }
+    })
+    check('list item: whole item taken (label line + hanging lines, not the previous item)', item && item.lines.length === 4 && /^\(d\)/.test(item.lines[0]) && !/sous-tendant \?$/.test(item.lines[0]), JSON.stringify(item?.lines))
+    check('list item: label hangs left of the following lines', item && item.indent < -10, JSON.stringify(item?.indent))
+    check('list item: italic words kept (forêt sous-tendante, G, n, m, c)', item && /forêtsous-tendante/.test(item.italic) && (item.italic.match(/G/g) ?? []).length === 3 && /nmc$/.test(item.italic), item?.italic)
+    await win.keyboard.press('Escape')
+    await win.evaluate(() => window.__feuillet.editor.canvas.discardActiveObject())
+  }
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()

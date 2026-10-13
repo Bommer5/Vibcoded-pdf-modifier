@@ -4,7 +4,7 @@ import type { Editor } from '../core/editor'
 import { isPageLayer } from '../core/props'
 import { Table } from '../objects/table'
 import type { InkObject } from '../tools/ink'
-import type { ToolManager } from '../tools/manager'
+import { penGesture, type ToolManager } from '../tools/manager'
 import { icon, type IconName } from './icons'
 
 type Pickable = FabricObject & { locked?: boolean; markup?: unknown; shape?: string; text?: string; assetId?: string; pdfPage?: unknown }
@@ -81,6 +81,8 @@ export class Picking {
     window.addEventListener('pointerup', () => setTimeout(() => (this.forced = null)))
     wrapper.addEventListener('contextmenu', (e) => {
       e.preventDefault()
+      // Clic droit venu d'un bouton du stylet utilisé pour autre chose (lasso, gomme…) : pas de menu.
+      if (performance.now() < penGesture.until) return
       this.openMenu(e.clientX, e.clientY)
     })
     window.addEventListener('pointerdown', (e) => {

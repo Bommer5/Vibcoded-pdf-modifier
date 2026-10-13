@@ -207,6 +207,66 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   check('stroke is sharp while writing (not an enlarged blurry image)', live.ink > 500 && live.soft < 0.3, JSON.stringify(live))
   await win.keyboard.press('Control+z')
 
+  // Curseur : point plein par défaut (pas de croix système par-dessus), réglable
+  await win.evaluate(() => { window.__feuillet.editor.viewport.zoomAt(1, null); window.__feuillet.tools.set('pen') })
+  check('pen cursor: solid dot, no system crosshair', (await win.evaluate(() => window.__feuillet.editor.canvas.defaultCursor)) === 'none')
+  await win.mouse.move(cx + 3, cy + 3)
+  await win.mouse.move(cx, cy)
+  const dot = await win.evaluate(([x, y]) => {
+    const c = window.__feuillet.editor.canvas
+    const r = c.upperCanvasEl.getBoundingClientRect()
+    const k = c.upperCanvasEl.width / r.width
+    const d = c.upperCanvasEl.getContext('2d').getImageData(Math.round((x - r.left) * k) - 6, Math.round((y - r.top) * k) - 6, 13, 13).data
+    // Pixel le plus sombre autour du pointeur : le centre du point
+    let best = [255, 255, 255, 0]
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && d[i] + d[i + 1] + d[i + 2] < best[0] + best[1] + best[2]) best = [d[i], d[i + 1], d[i + 2], d[i + 3]]
+    return best
+  }, [cx, cy])
+  check('pen cursor dot is opaque (solid)', dot[3] === 255 && dot[0] < 60, JSON.stringify(dot))
+
+  // Préférences > Stylet et tablette
+  await win.evaluate(() => window.__feuillet.openPreferences())
+  await win.waitForSelector('dialog.prefs')
+  await win.click('dialog.prefs [data-tab=pen]')
+  check('preferences: stylus and tablet tab explains each button', await win.locator('dialog.prefs .pen-map select').count() === 3 && /Bout gomme/.test(await win.locator('dialog.prefs .pen-map').innerText()))
+  check('preferences: tablet keys listed with current shortcuts', /Stylo ↔ gomme/.test(await win.locator('dialog.prefs .pad-keys').innerText()) && (await win.locator('dialog.prefs .pad-keys kbd').count()) > 5)
+  await win.selectOption('dialog.prefs [name=cursor]', 'cross')
+  check('cursor setting: thin cross', (await win.evaluate(() => window.__feuillet.editor.canvas.defaultCursor)) === 'crosshair')
+  await win.selectOption('dialog.prefs [name=cursor]', 'dot')
+  await win.selectOption('dialog.prefs [name=penButton1]', 'eraser')
+  const pb = await win.locator('dialog.prefs .pen-test').boundingBox()
+  await win.evaluate(([x, y]) => document.querySelector('.pen-test').dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'pen', button: 2, buttons: 2, clientX: x, clientY: y, bubbles: true })), [pb.x + 20, pb.y + 10])
+  check('test area names the button and its action', /Bouton 1 → Gomme/.test(await win.locator('dialog.prefs .pen-test').innerText()), await win.locator('dialog.prefs .pen-test').innerText())
+  await win.click('dialog.prefs button[value=ok]')
+
+  // Gestes d'un vrai stylet (simulés par Chromium) : un trait, puis le bouton 1 réglé sur
+  // Gomme l'efface ; réglé sur « Déplacer la vue », il déplace la vue.
+  const cdp = await win.context().newCDPSession(win)
+  const pen = async (pts, button = 'left', buttons = 1) => {
+    const ev = (type, [x, y], b, btn) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: btn, buttons: b, pointerType: 'pen', force: 0.5, clickCount: type === 'mouseMoved' ? 0 : 1 })
+    await ev('mouseMoved', pts[0], 0, 'none')
+    await ev('mousePressed', pts[0], buttons, button)
+    for (const p of pts.slice(1)) await ev('mouseMoved', p, buttons, button)
+    await ev('mouseReleased', pts.at(-1), 0, button)
+    await win.waitForTimeout(150)
+  }
+  const inkCount = () => win.evaluate(() => window.__feuillet.editor.doc.content.filter((o) => o.ink).length)
+  const ink0 = await inkCount()
+  await pen(Array.from({ length: 12 }, (_, i) => [cx - 100 + i * 18, cy + 60]))
+  const ink1 = await inkCount()
+  check('stylus tip writes', ink1 === ink0 + 1, `${ink0} → ${ink1}`)
+  await pen(Array.from({ length: 10 }, (_, i) => [cx - 10, cy + 20 + i * 8]), 'right', 2)
+  const ink2 = await inkCount()
+  check('stylus button 1 set to Eraser erases (pen stays the tool)', ink2 !== ink1 && (await win.evaluate(() => window.__feuillet.tools.tool)) === 'pen', `${ink1} → ${ink2}`)
+  check('no right-click menu after a stylus button gesture', await win.locator('.ctx-menu').count() === 0)
+  await win.evaluate(() => window.__feuillet.settings.set('penButton1', 'hand'))
+  const vPan = await vx()
+  await pen(Array.from({ length: 6 }, (_, i) => [cx + i * 12, cy - 80]), 'right', 2)
+  const vAfter = await vx()
+  check('stylus button set to "Move the view" pans', vAfter - vPan > 30, `${vPan} → ${vAfter}`)
+  await win.evaluate(() => window.__feuillet.settings.set('penButton1', 'lasso'))
+  await win.keyboard.press('Escape')
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()

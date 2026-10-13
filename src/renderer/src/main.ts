@@ -16,7 +16,7 @@ import { defaultChart } from './charts/chart'
 import { editChart } from './charts/chart-dialog'
 import { chartObject, isChart } from './charts/chart-object'
 import { TableEditor } from './objects/table-editor'
-import { ToolManager, type Tool } from './tools/manager'
+import { penActionOf, ToolManager, type Tool } from './tools/manager'
 import { MenuBar, type Menu } from './ui/menubar'
 import { Welcome } from './ui/welcome'
 import { applyTheme, openPreferences } from './ui/preferences'
@@ -160,6 +160,7 @@ function setTool(tool: Tool): void {
   tools.set(tool)
 }
 editor.placed = () => setTool('select')
+viewport.penPans = (e) => penActionOf(e) === 'hand'
 // Barre d'état : ce que fait l'outil actif et ses gestes cachés (comme la barre d'état d'Office).
 const TOOL_HINTS: Partial<Record<Tool, string>> = {
   select: 'Clic : sélectionner · Alt+clic : objet du dessous · Clic droit : liste des objets et commandes · Glisser : déplacer',
@@ -619,4 +620,4 @@ const make = {
   rect: (o: object) => new Rect(o),
   table: (rows: number, cols: number) => Table.create(rows, cols)
 }
-Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont } } })
+Object.assign(window, { __feuillet: { make, editor, importer, exporter, editing, tools, properties, tableEditor, settings, pageRenderer, formats: EXPORT_FORMATS, welcome, fileSession: session, layers, sidebar, findBar, textSelection, goToPage, picking, pdfEngine, ocr: { recognizePage, matchFont }, openPreferences: () => openPreferences(shortcuts) } })

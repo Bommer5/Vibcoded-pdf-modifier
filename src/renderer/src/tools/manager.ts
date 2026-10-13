@@ -8,7 +8,7 @@ import { editTextAt } from '../pdf/edit-text'
 import { hasNative, nativeCountInside, nativeRecognize, type Recognized } from '../native/core'
 import type { TextSelection } from '../ui/text-selection'
 import { buildInk, eraseInk, nearObject, scenePoints, type InkObject, type InkPoint } from './ink'
-import { dashArray, settings, type ShapeKind } from './settings'
+import { dashArray, settings, type PenButtonAction, type ShapeKind } from './settings'
 
 export type Tool = 'select' | 'lasso' | 'textselect' | 'edittext' | 'pen' | 'highlighter' | 'eraser' | 'shape' | 'text' | 'table' | 'hand'
 
@@ -94,6 +94,9 @@ export class ToolManager {
     }) as typeof c.findTarget
     c.on('mouse:down', (o) => this.down(o))
     c.on('mouse:move', (o) => this.move(o))
+    // Clic droit (bouton du stylet) : Fabric transmet l'évènement souris, sans « stylet ».
+    // On garde l'évènement pointeur d'origine pour reconnaître le stylet et ses boutons.
+    c.upperCanvasEl.addEventListener('pointerdown', (e) => (this.lastDown = e), { capture: true })
     c.on('mouse:up', () => this.up())
     c.on('mouse:out', () => this.tool === 'eraser' && !this.stroke && this.clearTop())
     c.on('text:editing:exited', ({ target }) => {
@@ -144,8 +147,11 @@ export class ToolManager {
 
   private applyCursor(): void {
     const c = this.ed.canvas
-    const cursor =
-      this.tool === 'text' || this.tool === 'textselect' || this.tool === 'edittext' ? 'text' : DRAW_TOOLS.includes(this.tool) || this.tool === 'lasso' || this.tool === 'table' ? 'crosshair' : 'default'
+    // Stylo, surligneur, gomme : le point (ou cercle) dessiné suffit, sans croix par-dessus.
+    const drawn = settings.value.cursor !== 'cross' && (this.tool === 'pen' || this.tool === 'highlighter' || this.tool === 'eraser')
+    const cursor = drawn
+      ? 'none'
+      : this.tool === 'text' || this.tool === 'textselect' || this.tool === 'edittext' ? 'text' : DRAW_TOOLS.includes(this.tool) || this.tool === 'lasso' || this.tool === 'table' ? 'crosshair' : 'default'
     c.defaultCursor = cursor
     if (this.tool !== 'select') c.hoverCursor = this.tool === 'text' ? 'text' : cursor
     else c.hoverCursor = 'move'
@@ -153,37 +159,47 @@ export class ToolManager {
 
   // --- Gestes --------------------------------------------------------------------
 
+  private lastDown: PointerEvent | null = null
+
   private down(o: TPointerEventInfo): void {
-    const e = o.e as PointerEvent
+    const raw = o.e as PointerEvent
+    const e = !raw.pointerType && this.lastDown && raw.timeStamp - this.lastDown.timeStamp < 100 ? this.lastDown : raw
     if (e.pointerType === 'touch' && this.penSeen) return
     const p = o.scenePoint
-    // Bouton latéral du stylet maintenu : lasso le temps du geste, quel que soit l'outil (comme Whiteboard).
-    if (e.pointerType === 'pen' && ((e.buttons ?? 0) & 2) !== 0 && this.tool !== 'hand') {
-      this.ed.canvas.discardActiveObject()
-      this.stroke = { tool: 'lasso', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
-      return
-    }
-    if ('button' in e && e.button !== 0 && e.button !== 5) return
+    // Boutons du stylet (réglables dans Préférences > Stylet et tablette), le temps du geste :
+    // lasso, gomme, déplacer la vue (géré par la vue), menu (clic droit) ou rien.
+    const penAction = e.pointerType === 'pen' ? penActionOf(e) : null
+    if (penAction) {
+      if (penAction !== 'menu') penGesture.until = performance.now() + 800 // pas de menu après le geste
+      if (penAction === 'lasso' && this.tool !== 'hand') {
+        this.ed.canvas.discardActiveObject()
+        this.stroke = { tool: 'lasso', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
+        return
+      }
+      if (penAction !== 'eraser') return
+    } else if ('button' in e && e.button !== 0) return
+    // Gomme du stylet : elle passe avant l'outil choisi (texte, tableau…), sauf Sélection et Main.
+    const erasing = penAction === 'eraser' && this.tool !== 'select' && this.tool !== 'hand'
 
-    if (this.tool === 'text') {
+    if (!erasing && this.tool === 'text') {
       if (o.target && 'text' in o.target) return // clic dans un texte existant : édition normale
       const page = this.pageRect(p)
       if (!page) return this.offPage()
       this.stroke = { tool: 'text', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p, page }
       return
     }
-    if (this.tool === 'table') {
+    if (!erasing && this.tool === 'table') {
       const page = this.pageRect(p)
       return page ? this.createTable(p, page) : this.offPage()
     }
-    if (this.tool === 'edittext') {
+    if (!erasing && this.tool === 'edittext') {
       void editTextAt(this.ed, p).then((box) => {
         if (box) this.set('select')
         else this.ed.notify('Cliquez sur un texte du PDF pour le modifier', 'info')
       })
       return
     }
-    if (this.tool === 'lasso') {
+    if (!erasing && this.tool === 'lasso') {
       // Appui dans la sélection en cours : on la déplace (comportement normal de Fabric).
       if (o.target && this.ed.canvas.getActiveObjects().includes(o.target)) return
       if (o.target && this.ed.canvas.getActiveObject() === o.target) return
@@ -191,15 +207,14 @@ export class ToolManager {
       this.stroke = { tool: 'lasso', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
       return
     }
-    if (this.tool === 'textselect') {
+    if (!erasing && this.tool === 'textselect') {
       this.stroke = { tool: 'textselect', points: [[p.x, p.y, 0.5]], start: p, straight: false, lastMove: p }
       void this.textSelection?.begin(p)
       return
     }
 
-    // Bout gomme du stylet (ou bouton 5) : gomme le temps du geste, quel que soit l'outil.
-    const eraserTip = e.button === 5 || ((e.buttons ?? 0) & 32) !== 0
-    const tool = eraserTip && this.tool !== 'select' && this.tool !== 'hand' ? 'eraser' : this.tool
+    // Bout gomme du stylet (ou bouton réglé sur « Gomme ») : gomme le temps du geste.
+    const tool = erasing ? 'eraser' : this.tool
     if (tool !== 'pen' && tool !== 'highlighter' && tool !== 'eraser' && tool !== 'shape') return
     // Appui sur l'objet sélectionné (ou Ctrl + appui) : Fabric le déplace, on ne trace rien.
     if (o.target && tool !== 'eraser') return
@@ -495,32 +510,53 @@ export class ToolManager {
   }
 
   private drawEraserCursor(at: Point): void {
-    const r = settings.value.eraserSize / 2 / this.ed.viewport.zoom
+    if (settings.value.cursor === 'cross') return this.clearTop()
+    const z = this.ed.viewport.zoom
+    const r = settings.value.eraserSize / 2 / z
     this.withTop((ctx) => {
       ctx.beginPath()
       ctx.arc(at.x, at.y, r, 0, Math.PI * 2)
-      ctx.lineWidth = 1 / this.ed.viewport.zoom
-      ctx.strokeStyle = '#4f8cff'
-      ctx.fillStyle = 'rgba(79,140,255,0.12)'
-      ctx.fill()
+      if (settings.value.cursor === 'dot') {
+        ctx.fillStyle = 'rgba(255,255,255,0.9)'
+        ctx.fill()
+      }
+      ctx.lineWidth = 1.5 / z
+      ctx.strokeStyle = '#4b4d57'
       ctx.stroke()
     })
   }
 
+  /** Curseur du stylo / surligneur : la taille et la couleur du trait, comme un vrai feutre. */
   private drawSizeCursor(at: Point): void {
     const v = settings.value
+    if (v.cursor === 'cross') return this.clearTop()
+    const z = this.ed.viewport.zoom
     const size = this.tool === 'pen' ? v.penWidth : v.highlighterWidth
     const color = this.tool === 'pen' ? v.penColor : v.highlighterColor
+    // Jamais plus petit que 3 px à l'écran : on le voit toujours.
+    const r = Math.max(size / 2, 1.5 / z)
     this.withTop((ctx) => {
       ctx.beginPath()
-      ctx.arc(at.x, at.y, Math.max(size / 2, 0.6 / this.ed.viewport.zoom), 0, Math.PI * 2)
-      ctx.fillStyle = color
-      ctx.globalAlpha = this.tool === 'highlighter' ? 0.4 : 0.85
-      ctx.fill()
-      ctx.globalAlpha = 1
-      ctx.lineWidth = 1 / this.ed.viewport.zoom
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-      ctx.stroke()
+      ctx.arc(at.x, at.y, r, 0, Math.PI * 2)
+      if (v.cursor === 'dot') {
+        ctx.fillStyle = color
+        ctx.fill()
+        // Liseré fin de contraste : visible sur fond clair comme sur fond sombre.
+        ctx.lineWidth = 1 / z
+        ctx.strokeStyle = isLight(color) ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.85)'
+        ctx.beginPath()
+        ctx.arc(at.x, at.y, r + 0.5 / z, 0, Math.PI * 2)
+        ctx.stroke()
+      } else {
+        ctx.lineWidth = 1.5 / z
+        ctx.strokeStyle = color
+        ctx.stroke()
+        ctx.lineWidth = 0.75 / z
+        ctx.strokeStyle = isLight(color) ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.8)'
+        ctx.beginPath()
+        ctx.arc(at.x, at.y, r + 1 / z, 0, Math.PI * 2)
+        ctx.stroke()
+      }
     })
   }
 
@@ -776,3 +812,27 @@ function snapAngle(a: Point, b: Point, strict = false): Point {
   return new Point(a.x + len * Math.cos(snapped), a.y + len * Math.sin(snapped))
 }
 
+/** Couleur claire (jaune, blanc…) : son liseré de contraste sera sombre. */
+function isLight(color: string): boolean {
+  const m = /^#?([0-9a-f]{6})/i.exec(color)
+  if (!m) return false
+  const n = parseInt(m[1], 16)
+  return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 170
+}
+
+/** Moment jusqu'auquel un geste de bouton du stylet empêche le menu du clic droit de s'ouvrir. */
+export const penGesture = { until: 0 }
+
+/**
+ * Bouton du stylet appuyé pendant le geste, et ce qu'il doit faire (null : la pointe seule).
+ * Bout gomme : bouton 5 / buttons & 32 ; bouton le plus proche de la pointe : clic droit
+ * (buttons & 2) ; second bouton : clic du milieu (buttons & 4).
+ */
+export function penActionOf(e: PointerEvent): PenButtonAction | null {
+  const b = e.buttons ?? 0
+  const v = settings.value
+  if (e.button === 5 || (b & 32) !== 0) return v.penEraserEnd
+  if ((b & 2) !== 0 || e.button === 2) return v.penButton1
+  if ((b & 4) !== 0 || e.button === 1) return v.penButton2
+  return null
+}

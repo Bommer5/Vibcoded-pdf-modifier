@@ -1,4 +1,4 @@
-import { FabricText, IText, Textbox } from 'fabric'
+import { FabricText, IText, Textbox, util } from 'fabric'
 
 /**
  * Espacement entre paragraphes (« Espacement après » de Word), donc aussi entre les
@@ -136,6 +136,69 @@ function installFirstIndent(): void {
   const leftOffset = proto._getLineLeftOffset
   proto._getLineLeftOffset = function (this: Indented, i: number) {
     return (leftOffset.call(this, i as never) as number) + indentOfLine(this, i)
+  } as never
+
+  // Texte justifié : Fabric dessine « mot + espace » d'un bloc avec le style de l'espace ; un
+  // mot d'une lettre en italique (« G », « n ») sortait donc droit. Ici, chaque mot est dessiné
+  // avec son propre style, l'espace à part. (Copie de FabricText._renderChars de Fabric 7.)
+  type Box = { kernedWidth: number; width: number; renderLeft: number; renderTop: number; angle: number }
+  type Self = {
+    textAlign: string
+    path?: unknown
+    direction: string
+    charSpacing: number
+    __charBounds: Box[][]
+    _reSpaceAndTab: RegExp
+    getHeightOfLineImpl(i: number): number
+    _fontSizeFraction: number
+    isEmptyStyles(i: number): boolean
+    getCompleteStyleDeclaration(l: number, c: number): Record<string, unknown>
+    _renderChar(m: string, ctx: CanvasRenderingContext2D, l: number, c: number, chars: string, left: number, top: number): void
+  }
+  const renderChars = proto._renderChars
+  proto._renderChars = function (this: Self, method: string, ctx: CanvasRenderingContext2D, line: string[], left: number, top: number, lineIndex: number) {
+    if (!this.textAlign.includes('justify') || this.path || this.direction !== 'ltr') {
+      return renderChars.call(this, method as never, ctx as never, line as never, left as never, top as never, lineIndex as never)
+    }
+    const space = this._reSpaceAndTab
+    let actualStyle: Record<string, unknown> | undefined
+    let chars = ''
+    let boxWidth = 0
+    ctx.save()
+    top -= this.getHeightOfLineImpl(lineIndex) * this._fontSizeFraction
+    for (let i = 0, len = line.length - 1; i <= len; i++) {
+      // Fin de bloc : fin de ligne, espacement des lettres, une espace, ou juste avant une espace.
+      let time = i === len || !!this.charSpacing || space.test(line[i]) || space.test(line[i + 1] ?? '')
+      chars += line[i]
+      const box = this.__charBounds[lineIndex][i]
+      if (boxWidth === 0) {
+        left += box.kernedWidth - box.width
+        boxWidth += box.width
+      } else boxWidth += box.kernedWidth
+      if (!time) {
+        actualStyle ??= this.getCompleteStyleDeclaration(lineIndex, i)
+        time = util.hasStyleChanged(actualStyle as never, this.getCompleteStyleDeclaration(lineIndex, i + 1) as never, false)
+      }
+      if (time) {
+        this._renderChar(method, ctx, lineIndex, i, chars, left, top)
+        chars = ''
+        actualStyle = undefined
+        left += boxWidth
+        boxWidth = 0
+      }
+    }
+    ctx.restore()
+  } as never
+
+  // Retrait négatif (étiquette de liste « (d) » qui dépasse à gauche) : le texte sort du cadre
+  // de l'objet ; sans image en cache, rien n'est rogné.
+  const shouldCache = proto.shouldCache
+  proto.shouldCache = function (this: Indented & { ownCaching?: boolean }) {
+    if ((this.firstIndent ?? 0) < 0) {
+      this.ownCaching = false
+      return false
+    }
+    return shouldCache.call(this)
   } as never
 
   // Retour à la ligne automatique : la première ligne d'un paragraphe a moins de place.

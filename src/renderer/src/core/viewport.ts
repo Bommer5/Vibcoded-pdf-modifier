@@ -164,6 +164,9 @@ export class Viewport {
     w.zoom = 1
   }
 
+  /** Le bouton du stylet appuyé doit-il déplacer la vue ? (réglage des boutons du stylet) */
+  penPans: ((e: PointerEvent) => boolean) | null = null
+
   /** Document visible (coordonnées document), pour ne jamais le perdre de vue. */
   bounds: (() => { left: number; top: number; width: number; height: number }) | null = null
 
@@ -197,9 +200,11 @@ export class Viewport {
         return
       }
     }
-    const middle = e.button === 1
+    const middle = e.button === 1 && e.pointerType !== 'pen'
     const finger = e.pointerType === 'touch' && this.touchPan
-    if (!this.panning && !middle && !finger) return
+    // Bouton du stylet réglé sur « Déplacer la vue ».
+    const penPan = e.pointerType === 'pen' && !!this.penPans?.(e)
+    if (!this.panning && !middle && !finger && !penPan) return
     e.preventDefault()
     e.stopPropagation() // le canevas ne doit ni dessiner ni sélectionner pendant le déplacement
     this.host.setPointerCapture(e.pointerId)

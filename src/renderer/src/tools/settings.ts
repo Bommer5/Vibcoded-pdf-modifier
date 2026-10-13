@@ -2,6 +2,10 @@
 export type LineStyle = 'solid' | 'dashed' | 'dotted'
 export type ShapeKind = 'line' | 'arrow' | 'rect' | 'ellipse' | 'triangle'
 export type EraserMode = 'partial' | 'stroke'
+/** Curseur des outils d'écriture : point plein (taille et couleur du trait), cercle, croix fine. */
+export type CursorStyle = 'dot' | 'ring' | 'cross'
+/** Ce que fait un bouton du stylet, le temps du geste. */
+export type PenButtonAction = 'lasso' | 'eraser' | 'hand' | 'menu' | 'none'
 
 export interface ToolSettings {
   penColor: string
@@ -31,6 +35,13 @@ export interface ToolSettings {
   textColor: string
   tableRows: number
   tableCols: number
+  cursor: CursorStyle
+  /** Bouton du stylet le plus proche de la pointe (clic droit). */
+  penButton1: PenButtonAction
+  /** Second bouton du stylet (clic du milieu). */
+  penButton2: PenButtonAction
+  /** Bout gomme (stylet retourné). */
+  penEraserEnd: PenButtonAction
 }
 
 const DEFAULTS: ToolSettings = {
@@ -55,7 +66,11 @@ const DEFAULTS: ToolSettings = {
   fontSize: 14,
   textColor: '#1b1b1f',
   tableRows: 3,
-  tableCols: 3
+  tableCols: 3,
+  cursor: 'dot',
+  penButton1: 'lasso',
+  penButton2: 'hand',
+  penEraserEnd: 'eraser'
 }
 
 const KEY = 'feuillet.tools.v1'

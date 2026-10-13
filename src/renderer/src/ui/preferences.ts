@@ -1,6 +1,6 @@
 import { comboFromEvent, prettyCombo, type ActionId, type ShortcutManager } from '../core/shortcuts'
 import { PAPER_STYLES } from '../core/paper'
-import { settings } from '../tools/settings'
+import { settings, type PenButtonAction } from '../tools/settings'
 
 export type Theme = 'system' | 'dark' | 'light'
 const THEME_KEY = 'feuillet.theme'
@@ -47,6 +47,7 @@ export function openPreferences(shortcuts: ShortcutManager): void {
       <div class="prefs-tabs" role="tablist">
         <button type="button" data-tab="keys" class="active">Raccourcis</button>
         <button type="button" data-tab="general">Général</button>
+        <button type="button" data-tab="pen">Stylet et tablette</button>
       </div>
       <section data-panel="keys">
         <p class="muted small">Cliquez sur « Modifier », puis appuyez sur la touche (ou combinaison) voulue. Échap annule.</p>
@@ -60,9 +61,29 @@ export function openPreferences(shortcuts: ShortcutManager): void {
         <label>Papier des nouvelles pages
           <select name="paper">${PAPER_STYLES.map((p) => `<option value="${p.id}">${p.label}</option>`).join('')}</select>
         </label>
-        <label class="check"><input type="checkbox" name="pressure" /> Stylo sensible à la pression</label>
         <label class="check"><input type="checkbox" name="snap" /> Surligneur aimanté au texte des PDF</label>
         <label class="check"><input type="checkbox" name="shapes" /> Formes parfaites en tenant le stylet immobile</label>
+      </section>
+      <section data-panel="pen" hidden>
+        <label>Curseur pour écrire
+          <select name="cursor">
+            <option value="dot">Point plein (taille et couleur du trait)</option>
+            <option value="ring">Cercle (taille et couleur du trait)</option>
+            <option value="cross">Croix fine</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" name="pressure" /> Trait plus épais quand on appuie plus fort (pression)</label>
+        <h3 class="prefs-sub">Boutons du stylet</h3>
+        <p class="muted small">La pointe écrit avec l'outil choisi. Chaque bouton agit tant qu'il est maintenu pendant le geste.</p>
+        <div class="pen-map">
+          <span class="pen-name"><b>Bouton 1</b><small>le plus près de la pointe (clic droit)</small></span><select name="penButton1"></select>
+          <span class="pen-name"><b>Bouton 2</b><small>le plus haut (clic du milieu)</small></span><select name="penButton2"></select>
+          <span class="pen-name"><b>Bout gomme</b><small>stylet retourné</small></span><select name="penEraserEnd"></select>
+        </div>
+        <div class="pen-test" tabindex="0">Essayez ici : posez le stylet en tenant un bouton, ou retournez-le.</div>
+        <h3 class="prefs-sub">Boutons de la tablette (ExpressKeys, molette…)</h3>
+        <p class="muted small">Ils se règlent dans le pilote de la tablette (Wacom, XP-Pen, Huion…) : faites-leur envoyer une de ces touches.</p>
+        <div class="pad-keys"></div>
       </section>
       <menu><button value="ok" class="primary">Fermer</button></menu>
     </form>`
@@ -150,6 +171,57 @@ export function openPreferences(shortcuts: ShortcutManager): void {
     box.addEventListener('change', () => settings.set(key, box.checked))
   }
   bind('pressure', 'pressure')
+
+  // Stylet et tablette
+  const cursor = $<HTMLSelectElement>('[name=cursor]')
+  cursor.value = settings.value.cursor
+  cursor.addEventListener('change', () => settings.set('cursor', cursor.value as never))
+  const ACTIONS: [PenButtonAction, string][] = [
+    ['lasso', 'Lasso (entourer pour sélectionner)'],
+    ['eraser', 'Gomme'],
+    ['hand', 'Déplacer la vue'],
+    ['menu', 'Menu (clic droit)'],
+    ['none', 'Rien']
+  ]
+  const label = (a: PenButtonAction): string => ACTIONS.find(([k]) => k === a)?.[1] ?? a
+  for (const key of ['penButton1', 'penButton2', 'penEraserEnd'] as const) {
+    const sel = $<HTMLSelectElement>(`[name=${key}]`)
+    sel.innerHTML = ACTIONS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')
+    sel.value = settings.value[key]
+    sel.addEventListener('change', () => settings.set(key, sel.value as PenButtonAction))
+  }
+  // Zone d'essai : montre quel bouton est reconnu et ce qu'il fait.
+  const pad = $<HTMLElement>('.pen-test')
+  pad.addEventListener('contextmenu', (e) => e.preventDefault())
+  pad.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    const b = e.buttons
+    const v = settings.value
+    const [name, action] =
+      e.button === 5 || b & 32 ? ['Bout gomme', v.penEraserEnd]
+        : b & 2 ? ['Bouton 1', v.penButton1]
+          : b & 4 ? ['Bouton 2', v.penButton2]
+            : [e.pointerType === 'pen' ? 'Pointe' : e.pointerType === 'touch' ? 'Doigt' : 'Souris', null]
+    pad.textContent = action ? `${name} → ${label(action as PenButtonAction)}` : `${name} → écrit avec l'outil choisi`
+    pad.classList.add('hit')
+    setTimeout(() => pad.classList.remove('hit'), 400)
+  })
+  // Touches utiles à mettre sur les boutons de la tablette (raccourcis actuels).
+  const PAD: [ActionId, string][] = [
+    ['tool.eraser', 'Stylo ↔ gomme'],
+    ['undo', 'Annuler'],
+    ['redo', 'Rétablir'],
+    ['tool.pen', 'Stylo'],
+    ['tool.highlighter', 'Surligneur'],
+    ['tool.select', 'Sélection'],
+    ['tool.hand', 'Main (déplacer la vue)'],
+    ['zoomIn', 'Zoom avant'],
+    ['zoomOut', 'Zoom arrière'],
+    ['zoomReset', 'Page entière']
+  ]
+  const keys = $<HTMLElement>('.pad-keys')
+  const pads = PAD.map(([id, l]) => `<span>${l}</span><span>${shortcuts.get(id).map((c) => `<kbd>${prettyCombo(c)}</kbd>`).join(' ') || '—'}</span>`)
+  keys.innerHTML = pads.join('') + '<span>Taille du trait</span><span><kbd>[</kbd> <kbd>]</kbd></span><span>Défiler / zoomer</span><span>Molette, Ctrl + molette</span>'
   bind('snap', 'highlightSnap')
   bind('shapes', 'shapeRecognition')
 
