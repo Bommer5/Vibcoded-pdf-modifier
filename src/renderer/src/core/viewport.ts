@@ -124,7 +124,7 @@ export class Viewport {
   /**
    * Pavé tactile et molette :
    * - glisser à deux doigts : déplace la vue dans tous les sens (comme dans un navigateur) ;
-   * - pincer (ou Ctrl+molette) : zoom sur le pointeur ;
+   * - pincer à deux doigts (ou Ctrl+molette) : zoom sur le pointeur, qui suit les doigts ;
    * - Maj+molette : défilement horizontal (souris sans molette horizontale).
    * Les évènements sont regroupés par image (60 Hz) : défilement fluide même quand le
    * pavé en envoie des centaines par seconde, et la vue ne peut pas « perdre » le document.
@@ -140,9 +140,11 @@ export class Viewport {
     const dy = e.deltaY * unit
     const w = this.wheel
     if (e.ctrlKey || e.metaKey) {
-      // Pincement : petits pas réguliers ; molette crantée : pas de ~10 % par cran.
-      const step = Math.max(-100, Math.min(100, dy))
-      w.zoom *= Math.pow(1.0022, -step)
+      // Pincement à deux doigts sur le pavé tactile : le navigateur l'envoie comme Ctrl+molette,
+      // avec deltaY = -100 × ln(écartement) ; le zoom suit alors exactement les doigts.
+      // Molette crantée (Ctrl+molette, pas de 100 ou 120) : ~10 % par cran.
+      const notch = e.deltaMode !== 0 || (Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50)
+      w.zoom *= notch ? Math.pow(1.1, -Math.sign(dy) * Math.min(3, Math.round(Math.abs(dy) / 100) || 1)) : Math.exp(-Math.max(-50, Math.min(50, dy)) / 100)
       w.at = this.local(e)
     } else if (e.shiftKey && !dx) {
       w.dx -= dy

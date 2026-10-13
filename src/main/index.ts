@@ -212,6 +212,10 @@ ipcMain.handle('office:convert', (_e, name: string, data: Uint8Array, target: st
   convertWithOffice(name, data, target)
 )
 
+// Linux : sous Wayland, le pavé tactile envoie ses gestes (pincer pour zoomer) ; sous X11,
+// Chromium ne les reçoit pas. On laisse donc l'application choisir Wayland quand il est là.
+if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+
 // Une seule instance : un double-clic sur un fichier l'ouvre dans la fenêtre existante.
 if (!app.requestSingleInstanceLock()) {
   app.quit()

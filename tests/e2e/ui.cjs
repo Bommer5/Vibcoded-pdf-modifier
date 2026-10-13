@@ -146,6 +146,34 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   check('hand: no glide when the hand stops before releasing', Math.abs((await vx()) - still) < 0.5)
   await win.keyboard.press('KeyV')
 
+  // Pavé tactile : pincer à deux doigts (Ctrl+molette à petits pas) suit l'écartement des doigts,
+  // centré sur le pointeur ; un cran de molette avec Ctrl = ~10 %.
+  const pinch = (deltas, ctrl = true) => win.evaluate(async ([deltas, ctrl, x, y]) => {
+    const { editor } = window.__feuillet
+    const host = document.getElementById('workspace')
+    const r = host.getBoundingClientRect()
+    const before = editor.viewport.zoom
+    const v0 = [...editor.canvas.viewportTransform]
+    const sceneUnder = [(x - r.left - v0[4]) / v0[0], (y - r.top - v0[5]) / v0[3]]
+    for (const d of deltas) {
+      host.dispatchEvent(new WheelEvent('wheel', { deltaY: d, ctrlKey: ctrl, clientX: x, clientY: y, bubbles: true, cancelable: true }))
+      await new Promise((res) => requestAnimationFrame(res))
+    }
+    await new Promise((res) => requestAnimationFrame(res))
+    const v = editor.canvas.viewportTransform
+    const drift = Math.hypot(sceneUnder[0] * v[0] + v[4] - (x - r.left), sceneUnder[1] * v[3] + v[5] - (y - r.top))
+    return { ratio: editor.viewport.zoom / before, drift }
+  }, [deltas, ctrl, cx, cy])
+  await win.evaluate(() => window.__feuillet.editor.viewport.zoomAt(1, null))
+  // Écartement ×2 en 20 petits pas : somme des deltaY = -100 × ln 2
+  const spread = await pinch(Array.from({ length: 20 }, () => (-100 * Math.log(2)) / 20))
+  check('touchpad pinch: zoom follows the fingers (×2)', Math.abs(spread.ratio - 2) < 0.06, JSON.stringify(spread))
+  check('touchpad pinch: the point under the pointer stays put', spread.drift < 1.5, JSON.stringify(spread))
+  const closing = await pinch(Array.from({ length: 10 }, () => (100 * Math.log(2)) / 10))
+  check('touchpad pinch: closing the fingers zooms out (÷2)', Math.abs(closing.ratio - 0.5) < 0.03, JSON.stringify(closing))
+  const notch = await pinch([100])
+  check('Ctrl + mouse wheel notch: one ~10 % step', Math.abs(notch.ratio - 1 / 1.1) < 0.01, JSON.stringify(notch))
+
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await win.evaluate(() => window.feuillet.setDirty(false))
   await app.close()
